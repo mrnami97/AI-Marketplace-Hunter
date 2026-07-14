@@ -283,9 +283,13 @@ async def search_carousell(
     DEBUG_FOLDER.mkdir(parents=True, exist_ok=True)
 
     search_url = (
-        f"{BASE_URL}/search/{quote_plus(cleaned_query)}"
-        "?addRecent=true&canChangeKeyword=true&includeSuggestions=true"
-        "&t-search_query_source=direct_search"
+    f"{BASE_URL}/search/"
+    f"{quote_plus(cleaned_query)}"
+    "?addRecent=true"
+    "&canChangeKeyword=true"
+    "&includeSuggestions=true"
+    "&sort_by=3"
+    "&t-search_query_source=recent_search"
     )
 
     results = []
