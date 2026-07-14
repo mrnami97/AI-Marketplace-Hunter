@@ -30,7 +30,8 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 async def post_init(application: Application) -> None:
     if application.job_queue is None:
         raise RuntimeError(
-            "JobQueue is unavailable. Install requirements again."
+            "JobQueue unavailable. Run: "
+            "py -m pip install 'python-telegram-bot[job-queue]'"
         )
 
     application.job_queue.run_repeating(
@@ -68,11 +69,8 @@ def main() -> None:
     application.add_handler(CommandHandler("check", manual_check))
     application.add_handler(CommandHandler("status", status_command))
 
-    print("AI Marketplace Hunter is running...")
-
-    application.run_polling(
-        allowed_updates=["message"]
-    )
+    print("AI Marketplace Hunter v0.2.2 is running...")
+    application.run_polling(allowed_updates=["message"])
 
 
 if __name__ == "__main__":

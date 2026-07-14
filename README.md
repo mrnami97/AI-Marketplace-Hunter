@@ -1,100 +1,40 @@
-# AI Marketplace Hunter
+AI Marketplace Hunter v0.2.2
 
-A Telegram-based marketplace search and watchlist assistant.
+CHANGED/NEW FILES:
+- app.py
+- handlers.py
+- database.py
+- watcher.py
+- marketplace_utils.py (NEW)
+- crawler/carousell.py
+- requirements.txt
 
-## Current working features
+INSTALL:
+1. Stop the bot with Ctrl+C.
+2. Copy these files into the project, keeping crawler/carousell.py inside crawler.
+3. Run:
+   py -m pip install -r requirements.txt
+4. Run:
+   py app.py
 
-- `/search RTX 3070 under RM900 in Sabah`
-- `/watch RTX 3070 under RM900 in Sabah`
-- `/list`
-- `/remove 1`
-- SQLite watchlist storage
-- Direct Carousell and Facebook Marketplace search links
+COMMANDS:
+- /search RTX 3070 under RM1200 best
+- /search RTX 3070 under RM1200 newest
+- /search RTX 3070 under RM1200 cheapest
+- /current 2 best
+- /current 2 newest
+- /current 2 cheapest
+- /check 2
+- /status
 
-## Planned crawler fields
+FEATURES:
+- Blocks box-only, broken, repair, parts-only and similar listings.
+- Rejects weakly relevant titles.
+- Ignores listings older than 30 days.
+- Sorts by best score, newest or cheapest.
+- Local AI-style scoring: relevance + freshness + relative price.
+- Compact Telegram table.
+- Clickable "Click Here" links.
 
-- Listing title
-- Price
-- Location
-- Source
-- Posted time
-- First seen
-- Last seen
-- Active/removed status
-- Direct listing link
-
-## Windows setup
-
-### 1. Open this folder in Visual Studio Code
-
-Open a terminal in the project folder.
-
-### 2. Create a virtual environment
-
-```powershell
-python -m venv .venv
-.venv\Scripts\activate
-```
-
-### 3. Install packages
-
-```powershell
-pip install -r requirements.txt
-playwright install chromium
-```
-
-### 4. Create your Telegram bot
-
-1. Open Telegram.
-2. Search for `@BotFather`.
-3. Send `/newbot`.
-4. Choose a name and username.
-5. Copy the token.
-
-### 5. Configure the project
-
-Copy `.env.example` to `.env`:
-
-```powershell
-copy .env.example .env
-```
-
-Open `.env` and replace:
-
-```text
-TELEGRAM_BOT_TOKEN=PASTE_YOUR_BOT_TOKEN_HERE
-```
-
-with your real token.
-
-### 6. Run
-
-```powershell
-python app.py
-```
-
-You should see:
-
-```text
-AI Marketplace Hunter is running...
-```
-
-Then open your bot in Telegram and send:
-
-```text
-/start
-```
-
-## Add the bot to a Telegram group
-
-1. Open the Telegram group.
-2. Add the bot as a member.
-3. In BotFather, use `/setprivacy`.
-4. Select your bot.
-5. Choose `Disable` so it can read commands in the group.
-
-The bot only reacts to slash commands in this version.
-
-## Important
-
-Facebook and Carousell frequently change their page layouts and may restrict automated access. The crawler should use your normal browser session only where permitted and should not bypass access controls.
+NOTE:
+This release uses local scoring and does not require an OpenAI API key.

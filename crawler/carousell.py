@@ -3,17 +3,31 @@ import re
 from pathlib import Path
 from urllib.parse import quote_plus, urljoin
 
-from playwright.async_api import BrowserContext, Page, async_playwright
+from playwright.async_api import (
+    Browser,
+    BrowserContext,
+    Locator,
+    Page,
+    TimeoutError as PlaywrightTimeoutError,
+    async_playwright,
+)
 
 from crawler.base import Listing
+from marketplace_utils import (
+    is_blocked_listing,
+    posted_age_minutes,
+    relevance_score,
+)
 
 
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.carousell.com.my"
 PROJECT_FOLDER = Path(__file__).resolve().parents[1]
-PROFILE_FOLDER = PROJECT_FOLDER / "playwright-profile"
 DEBUG_FOLDER = PROJECT_FOLDER / "debug-output"
+
+MAX_LISTING_AGE_DAYS = 30
+MAX_SCROLL_ROUNDS = 8
 
 
 def extract_price(text: str) -> float | None:
@@ -40,6 +54,7 @@ def extract_posted_time(text: str) -> str | None:
         r"\b\d+\s+(?:day|days)\s+ago\b",
         r"\b\d+\s+(?:week|weeks)\s+ago\b",
         r"\b\d+\s+(?:month|months)\s+ago\b",
+        r"\b\d+\s+(?:year|years)\s+ago\b",
         r"\btoday\b",
         r"\byesterday\b",
     ]
@@ -68,6 +83,8 @@ def choose_title(link_text: str, card_text: str) -> str:
         "well used",
         "brand new",
         "new",
+        "promoted",
+        "sponsored",
     }
 
     for line in clean_text_lines(link_text) + clean_text_lines(card_text):
@@ -77,7 +94,7 @@ def choose_title(link_text: str, card_text: str) -> str:
             continue
         if line.lower() in ignored:
             continue
-        if len(line) >= 6:
+        if len(line) >= 5:
             return line[:150]
 
     return "Unknown Carousell listing"
@@ -102,25 +119,32 @@ async def close_popups(page: Page) -> None:
             pass
 
 
-async def get_card_text(link) -> str:
+async def get_listing_card(link: Locator) -> Locator:
     current = link
-    best_text = ""
+    best = link
 
-    for _ in range(8):
+    for _ in range(12):
         try:
-            text = (await current.inner_text()).strip()
+            parent = current.locator("xpath=..")
 
-            if text and len(text) > len(best_text):
-                best_text = text
+            if await parent.count() == 0:
+                break
+
+            text = (await parent.inner_text()).strip()
+            product_links = parent.locator('a[href*="/p/"]')
+            product_link_count = await product_links.count()
 
             if (
-                extract_price(text) is not None
-                and extract_posted_time(text) is not None
+                product_link_count == 1
+                and extract_price(text) is not None
+                and len(text) >= 12
             ):
-                return text
+                best = parent
 
-            parent = current.locator("xpath=..")
-            if await parent.count() == 0:
+                if extract_posted_time(text) is not None:
+                    return parent
+
+            if product_link_count > 1:
                 break
 
             current = parent
@@ -128,7 +152,7 @@ async def get_card_text(link) -> str:
         except Exception:
             break
 
-    return best_text
+    return best
 
 
 async def save_debug_files(page: Page) -> None:
@@ -148,81 +172,162 @@ async def save_debug_files(page: Page) -> None:
         logger.warning("Could not save debug files: %s", error)
 
 
-async def create_page(context: BrowserContext) -> Page:
-    if context.pages:
-        return context.pages[0]
-    return await context.new_page()
+async def launch_browser(playwright) -> Browser:
+    try:
+        return await playwright.chromium.launch(
+            channel="chrome",
+            headless=False,
+        )
+    except Exception:
+        return await playwright.chromium.launch(
+            headless=False,
+        )
+
+
+async def create_context(browser: Browser) -> BrowserContext:
+    return await browser.new_context(
+        viewport={"width": 1400, "height": 900},
+        locale="en-MY",
+        timezone_id="Asia/Kuala_Lumpur",
+        service_workers="block",
+    )
+
+
+async def open_search_page(
+    context: BrowserContext,
+    search_url: str,
+) -> Page:
+    page = await context.new_page()
+
+    try:
+        await page.goto(
+            search_url,
+            wait_until="commit",
+            timeout=30_000,
+        )
+    except PlaywrightTimeoutError:
+        logger.warning("Navigation timed out: %s", page.url)
+
+    if page.url == "about:blank":
+        try:
+            await page.goto(
+                BASE_URL,
+                wait_until="commit",
+                timeout=30_000,
+            )
+            await page.wait_for_timeout(2_000)
+            await page.goto(
+                search_url,
+                wait_until="commit",
+                timeout=30_000,
+            )
+        except PlaywrightTimeoutError:
+            logger.warning("Navigation retry timed out: %s", page.url)
+
+    await page.wait_for_timeout(8_000)
+
+    if page.url == "about:blank":
+        raise RuntimeError("Chrome remained on about:blank.")
+
+    return page
+
+
+async def load_more_results(page: Page) -> int:
+    previous_count = 0
+    stable_rounds = 0
+
+    for round_number in range(MAX_SCROLL_ROUNDS):
+        links = page.locator('a[href*="/p/"]')
+        current_count = await links.count()
+
+        logger.info(
+            "Scroll round %s: %s listing links",
+            round_number + 1,
+            current_count,
+        )
+
+        if current_count <= previous_count:
+            stable_rounds += 1
+        else:
+            stable_rounds = 0
+
+        if stable_rounds >= 2:
+            break
+
+        previous_count = current_count
+
+        await page.evaluate(
+            "window.scrollTo(0, document.body.scrollHeight)"
+        )
+        await page.wait_for_timeout(2_500)
+
+        # Some infinite-scroll pages need a slight upward movement.
+        await page.mouse.wheel(0, -300)
+        await page.wait_for_timeout(500)
+        await page.mouse.wheel(0, 1200)
+        await page.wait_for_timeout(1_000)
+
+    return await page.locator('a[href*="/p/"]').count()
 
 
 async def search_carousell(
     query: str,
     max_price: float | None = None,
-    max_results: int = 8,
+    max_results: int = 30,
 ) -> list[Listing]:
     cleaned_query = query.strip()
 
     if not cleaned_query:
         return []
 
-    PROFILE_FOLDER.mkdir(parents=True, exist_ok=True)
     DEBUG_FOLDER.mkdir(parents=True, exist_ok=True)
 
-    search_url = f"{BASE_URL}/search/{quote_plus(cleaned_query)}"
+    search_url = (
+        f"{BASE_URL}/search/{quote_plus(cleaned_query)}"
+        "?addRecent=true&canChangeKeyword=true&includeSuggestions=true"
+        "&t-search_query_source=direct_search"
+    )
 
-    results: list[Listing] = []
-    seen_urls: set[str] = set()
+    results = []
+    seen_urls = set()
 
     async with async_playwright() as playwright:
-        context = await playwright.chromium.launch_persistent_context(
-            user_data_dir=str(PROFILE_FOLDER),
-            headless=False,
-            viewport={"width": 1400, "height": 900},
-        )
+        browser = await launch_browser(playwright)
+        context = await create_context(browser)
 
         try:
-            page = await create_page(context)
-
-            response = await page.goto(
-                search_url,
-                wait_until="domcontentloaded",
-                timeout=60_000,
-            )
-
-            logger.info(
-                "Carousell opened: %s | status=%s",
-                page.url,
-                response.status if response else "none",
-            )
-
-            await page.wait_for_timeout(6_000)
+            page = await open_search_page(context, search_url)
             await close_popups(page)
 
-            await page.mouse.wheel(0, 1_500)
-            await page.wait_for_timeout(2_000)
+            try:
+                await page.locator('a[href*="/p/"]').first.wait_for(
+                    state="attached",
+                    timeout=25_000,
+                )
+            except PlaywrightTimeoutError:
+                logger.warning("No listing links appeared.")
 
+            listing_link_count = await load_more_results(page)
             await save_debug_files(page)
 
-            listing_links = page.locator('a[href*="/p/"]')
-            listing_link_count = await listing_links.count()
-
             logger.info(
-                "Possible Carousell listing links: %s",
+                "Total listing links after scrolling: %s",
                 listing_link_count,
             )
 
-            for index in range(listing_link_count):
-                if len(results) >= max_results:
-                    break
+            listing_links = page.locator('a[href*="/p/"]')
+            read_limit = min(listing_link_count, max_results * 12)
 
+            for index in range(read_limit):
                 link = listing_links.nth(index)
 
                 try:
                     href = await link.get_attribute("href")
+
                     if not href:
                         continue
 
-                    full_url = urljoin(BASE_URL, href)
-                    clean_url = full_url.split("?")[0]
+                    clean_url = urljoin(BASE_URL, href).split("?")[0]
 
                     if clean_url in seen_urls:
                         continue
@@ -234,17 +339,29 @@ async def search_carousell(
                     except Exception:
                         link_text = ""
 
-                    card_text = await get_card_text(link)
+                    card = await get_listing_card(link)
+                    card_text = (await card.inner_text()).strip()
                     combined_text = f"{link_text}\n{card_text}".strip()
 
                     price = extract_price(combined_text)
-                    posted_time = extract_posted_time(combined_text)
+                    posted_time = extract_posted_time(card_text)
+                    title = choose_title(link_text, card_text)
+
+                    if is_blocked_listing(title, cleaned_query):
+                        continue
+
+                    # Wider threshold to keep abbreviations such as RTX2070S.
+                    if relevance_score(title, cleaned_query) < 60:
+                        continue
+
+                    age_minutes = posted_age_minutes(posted_time)
+
+                    if age_minutes > MAX_LISTING_AGE_DAYS * 24 * 60:
+                        continue
 
                     if max_price is not None:
                         if price is None or price > max_price:
                             continue
-
-                    title = choose_title(link_text, card_text)
 
                     listing_id_match = re.search(
                         r"-(\d+)(?:/)?$",
@@ -270,14 +387,23 @@ async def search_carousell(
                         )
                     )
 
+                    if len(results) >= max_results:
+                        break
+
                 except Exception as error:
                     logger.warning(
-                        "Skipped Carousell listing %s: %s",
+                        "Skipped listing %s: %s",
                         index,
                         error,
                     )
+
+            logger.info(
+                "Returned %s filtered Carousell listings.",
+                len(results),
+            )
 
             return results
 
         finally:
             await context.close()
+            await browser.close()

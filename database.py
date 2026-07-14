@@ -63,8 +63,7 @@ def init_db() -> None:
 
         if "last_checked_at" not in columns:
             con.execute(
-                "ALTER TABLE watches "
-                "ADD COLUMN last_checked_at TEXT"
+                "ALTER TABLE watches ADD COLUMN last_checked_at TEXT"
             )
 
 
@@ -147,10 +146,7 @@ def get_latest_watch(chat_id: int):
 def remove_watch(chat_id: int, watch_id: int) -> bool:
     with connect() as con:
         cursor = con.execute(
-            """
-            DELETE FROM watches
-            WHERE chat_id = ? AND id = ?
-            """,
+            "DELETE FROM watches WHERE chat_id = ? AND id = ?",
             (chat_id, watch_id),
         )
         return cursor.rowcount > 0
@@ -237,7 +233,7 @@ def update_watch_checked_time(watch_id: int) -> None:
 
 def get_seen_listings(
     watch_id: int,
-    limit: int = 15,
+    limit: int = 30,
 ):
     with connect() as con:
         return con.execute(
@@ -257,11 +253,7 @@ def get_seen_listings(
 def count_seen_listings(watch_id: int) -> int:
     with connect() as con:
         row = con.execute(
-            """
-            SELECT COUNT(*) AS total
-            FROM seen_listings
-            WHERE watch_id = ?
-            """,
+            "SELECT COUNT(*) AS total FROM seen_listings WHERE watch_id = ?",
             (watch_id,),
         ).fetchone()
         return int(row["total"])

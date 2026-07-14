@@ -1,4 +1,5 @@
 import asyncio
+import html
 import logging
 from typing import Any
 
@@ -13,28 +14,31 @@ from database import (
     save_seen_listing,
     update_watch_checked_time,
 )
+from marketplace_utils import score_emoji, score_listings, sort_scored
 
 
 logger = logging.getLogger(__name__)
 crawler_lock = asyncio.Lock()
 
 
-def format_alert(watch: Any, listing: Any) -> str:
+def format_alert(watch: Any, scored: Any) -> str:
+    listing = scored.listing
     price = (
         f"RM{listing.price:,.0f}"
         if listing.price is not None
-        else "Price not detected"
+        else "Unknown"
     )
-    posted = listing.posted_text or "Posted time not detected"
+    posted = listing.posted_text or "Unknown"
 
     return (
-        "🚨 NEW CAROUSELL LISTING\n\n"
-        f"Watch #{watch['id']}: {watch['query']}\n\n"
-        f"{listing.title}\n\n"
+        "🚨 <b>NEW CAROUSELL LISTING</b>\n\n"
+        f"<b>{html.escape(listing.title)}</b>\n"
         f"💰 {price}\n"
-        f"🕒 Posted: {posted}\n"
-        f"🌐 Carousell\n\n"
-        f"🔗 {listing.url}"
+        f"🕒 {html.escape(posted)}\n"
+        f"⭐ {score_emoji(scored.score)} {scored.score}/100 "
+        f"({scored.verdict})\n\n"
+        f'🔗 <a href="{html.escape(listing.url, quote=True)}">'
+        "Click Here</a>"
     )
 
 
@@ -51,12 +55,19 @@ async def check_one_watch(
         listings = await search_carousell(
             query=watch["query"],
             max_price=watch["max_price"],
-            max_results=15,
+            max_results=20,
         )
 
-    new_listings = []
+    scored_items = sort_scored(
+        score_listings(listings, watch["query"]),
+        "best",
+    )
 
-    for listing in listings:
+    new_items = []
+
+    for scored in scored_items:
+        listing = scored.listing
+
         already_seen = listing_was_seen(
             watch_id=watch_id,
             source=listing.source,
@@ -74,7 +85,7 @@ async def check_one_watch(
         )
 
         if initialized and not already_seen:
-            new_listings.append(listing)
+            new_items.append(scored)
 
     if not initialized:
         mark_watch_initialized(watch_id)
@@ -85,25 +96,26 @@ async def check_one_watch(
                 text=(
                     f"✅ Watch #{watch_id} initialized\n\n"
                     f"Item: {watch['query']}\n"
-                    f"Saved {len(listings)} existing listings.\n\n"
+                    f"Saved {len(scored_items)} filtered listings.\n\n"
                     "Future new listings will trigger alerts."
                 ),
             )
     else:
         update_watch_checked_time(watch_id)
 
-        for listing in new_listings:
+        for scored in new_items:
             await bot.send_message(
                 chat_id=chat_id,
-                text=format_alert(watch, listing),
+                text=format_alert(watch, scored),
+                parse_mode="HTML",
                 disable_web_page_preview=True,
             )
             await asyncio.sleep(1)
 
     return {
         "watch_id": watch_id,
-        "total_found": len(listings),
-        "new_found": len(new_listings),
+        "total_found": len(scored_items),
+        "new_found": len(new_items),
         "initialized_before_check": initialized,
     }
 
@@ -117,8 +129,6 @@ async def check_all_watches(
         logger.info("No active watches.")
         return
 
-    logger.info("Checking %s active watches.", len(watches))
-
     for watch in watches:
         try:
             result = await check_one_watch(
@@ -126,7 +136,7 @@ async def check_all_watches(
                 watch=watch,
             )
             logger.info(
-                "Watch #%s: %s listings, %s new.",
+                "Watch #%s: %s filtered listings, %s new.",
                 result["watch_id"],
                 result["total_found"],
                 result["new_found"],
