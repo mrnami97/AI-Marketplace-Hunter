@@ -1,0 +1,29 @@
+# Secrets
+.env
+
+# Python virtual environment
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Database
+marketplace.db
+*.db
+
+# Playwright browser profile
+playwright-profile/
+
+# Debug output
+debug-output/
+
+# Logs
+logs/
+*.log
+
+# VS Code settings
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
