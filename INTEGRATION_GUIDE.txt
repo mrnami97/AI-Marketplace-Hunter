@@ -1,0 +1,67 @@
+AI Marketplace Hunter v0.3.2
+Carousell + Facebook Marketplace Integration
+
+DEFAULT FACEBOOK LOCATIONS
+
+- Kota Kinabalu
+- Kuala Lumpur
+
+INSTALL
+
+1. Stop the old bot with Ctrl+C.
+
+2. Extract this ZIP into a new folder.
+
+3. Copy your existing .env into the new folder.
+
+4. Add these lines to .env:
+
+   FACEBOOK_ENABLED=true
+   FACEBOOK_HEADLESS=false
+   FACEBOOK_MAX_RESULTS_PER_LOCATION=15
+   FACEBOOK_LOCATIONS=kotakinabalu:Kota Kinabalu,kualalumpur:Kuala Lumpur
+
+5. Preserve watches by copying your old marketplace.db into the new folder.
+
+6. Install:
+
+   py -m pip install -r requirements.txt
+   py -m playwright install chromium
+
+7. Save Facebook login:
+
+   py facebook_login.py
+
+8. Start the bot:
+
+   py app.py
+
+COMMANDS
+
+Search Carousell + Facebook in both KK and KL:
+
+   /search RTX 3070 under RM1200 cheapest
+
+Search Facebook only in one requested location, while Carousell still searches
+normally:
+
+   /search RTX 3070 under RM1200 in Kuala Lumpur cheapest
+
+   /search RTX 3070 under RM1200 in Kota Kinabalu newest
+
+Create a watch across both Facebook locations:
+
+   /watch RTX 3070 under RM1200
+
+Create a watch narrowed to Kuala Lumpur:
+
+   /watch RTX 3070 under RM1200 in Kuala Lumpur
+
+IMPORTANT
+
+- facebook-profile contains your login cookies. Never upload it to GitHub.
+- Only one process may use facebook-profile at a time.
+- Stop app.py before running facebook_login.py.
+- This does not bypass Facebook login, CAPTCHA, verification, or access
+  controls.
+- Facebook search cards often show "Just listed" instead of an exact age.

@@ -1,0 +1,65 @@
+AI Marketplace Hunter v0.3.8
+Facebook Virtual Scroll Hotfix
+
+ROOT CAUSE CONFIRMED FROM THE UPLOADED HTML
+
+Each Facebook Marketplace item anchor already contains the correct:
+
+- price
+- title
+- location
+- URL
+
+Example structure:
+
+MYR1,000
+MYR1,200
+USED RTX 3070
+Sandakan, SBH
+
+The previous crawler climbed parent elements unnecessarily.
+
+More importantly, Facebook uses a virtualized grid. When the browser scrolls,
+older cards are removed from the DOM. The previous crawler waited until
+scrolling finished, then inspected only the final visible subset.
+
+HOTFIX
+
+- Captures every visible item anchor during every scroll round.
+- Accumulates unique URLs before Facebook removes old cards.
+- Reads price, title, location and posted status directly from anchor text.
+- Does not open individual listing pages.
+- Scrolls up to 15 rounds.
+- Keeps separate collections for Kota Kinabalu and Kuala Lumpur.
+- Filters by the requested GPU title only after collection.
+- Returns up to 15 matching listings per Facebook location.
+- Uses Facebook default Best Match search.
+- Carousell remains on sort_by=3.
+
+INSTALL
+
+1. Stop the bot:
+
+   Ctrl+C
+
+2. Extract this ZIP and replace your project files.
+
+3. Start:
+
+   py app.py
+
+4. Test:
+
+   /search RTX 3070 under RM1200 cheapest
+
+TERMINAL LOG TO EXPECT
+
+Facebook Kota Kinabalu round 1: ... unique cards collected
+Facebook Kota Kinabalu round 2: ... unique cards collected
+...
+Facebook Kota Kinabalu: ... raw unique cards, ... matching listings accepted.
+
+OLD SAVED WATCH RESULTS
+
+/remove WATCH_ID
+/watch RTX 3070 under RM1200

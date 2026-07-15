@@ -1,0 +1,69 @@
+AI Marketplace Hunter v0.3.5
+
+CHANGES
+
+1. Related-title GPU matching
+
+The bot no longer globally blocks GTX 1660, RTX 3060, RTX 3080, or any other
+specific model.
+
+Instead, each search only includes titles matching the requested GPU family.
+
+Examples:
+
+Query: RTX 3070
+
+Accepted:
+- RTX 3070
+- RTX3070
+- MSI RTX 3070 Gaming X Trio
+- RTX 3070 Ti
+
+Not included:
+- GTX 1660
+- RTX 3060
+- RTX 3080
+- RX 6700 XT
+- Generic title without RTX 3070
+
+Searching GTX 1660 later works normally because GTX 1660 is not blacklisted.
+
+A query with a suffix is stricter:
+
+Query: RTX 3070 Ti
+- Accepts RTX 3070 Ti
+- Does not include standard RTX 3070
+
+2. Carousell recent sorting
+
+The Carousell URL now includes:
+
+    &sort_by=3
+
+This requests recent listings first before the bot filters and ranks them.
+
+INSTALL
+
+1. Stop the bot:
+
+   Ctrl+C
+
+2. Replace the current files with this ZIP.
+
+3. Start:
+
+   py app.py
+
+TEST
+
+/search RTX 3070 under RM1200 cheapest
+/search GTX 1660 under RM600 cheapest
+/search RTX 3070 Ti under RM1400 newest
+
+OLD WATCH DATA
+
+If /current shows records saved by an older filter, remove and recreate the
+watch:
+
+/remove WATCH_ID
+/watch RTX 3070 under RM1200

@@ -42,28 +42,48 @@ def init_db() -> None:
                 price REAL,
                 url TEXT NOT NULL,
                 posted_text TEXT,
+                location TEXT,
                 first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(watch_id, source, listing_id),
-                FOREIGN KEY(watch_id) REFERENCES watches(id) ON DELETE CASCADE
+                FOREIGN KEY(watch_id)
+                    REFERENCES watches(id)
+                    ON DELETE CASCADE
             )
             """
         )
 
-        columns = {
+        watch_columns = {
             row["name"]
-            for row in con.execute("PRAGMA table_info(watches)").fetchall()
+            for row in con.execute(
+                "PRAGMA table_info(watches)"
+            ).fetchall()
         }
 
-        if "initialized" not in columns:
+        if "initialized" not in watch_columns:
             con.execute(
                 "ALTER TABLE watches "
-                "ADD COLUMN initialized INTEGER NOT NULL DEFAULT 0"
+                "ADD COLUMN initialized "
+                "INTEGER NOT NULL DEFAULT 0"
             )
 
-        if "last_checked_at" not in columns:
+        if "last_checked_at" not in watch_columns:
             con.execute(
-                "ALTER TABLE watches ADD COLUMN last_checked_at TEXT"
+                "ALTER TABLE watches "
+                "ADD COLUMN last_checked_at TEXT"
+            )
+
+        listing_columns = {
+            row["name"]
+            for row in con.execute(
+                "PRAGMA table_info(seen_listings)"
+            ).fetchall()
+        }
+
+        if "location" not in listing_columns:
+            con.execute(
+                "ALTER TABLE seen_listings "
+                "ADD COLUMN location TEXT"
             )
 
 
@@ -76,11 +96,22 @@ def add_watch(
     with connect() as con:
         cursor = con.execute(
             """
-            INSERT INTO watches (chat_id, query, max_price, location)
+            INSERT INTO watches (
+                chat_id,
+                query,
+                max_price,
+                location
+            )
             VALUES (?, ?, ?, ?)
             """,
-            (chat_id, query, max_price, location),
+            (
+                chat_id,
+                query,
+                max_price,
+                location,
+            ),
         )
+
         return int(cursor.lastrowid)
 
 
@@ -89,8 +120,15 @@ def get_watches(chat_id: int):
         return con.execute(
             """
             SELECT
-                id, chat_id, query, max_price, location,
-                active, initialized, created_at, last_checked_at
+                id,
+                chat_id,
+                query,
+                max_price,
+                location,
+                active,
+                initialized,
+                created_at,
+                last_checked_at
             FROM watches
             WHERE chat_id = ?
             ORDER BY id DESC
@@ -104,8 +142,15 @@ def get_active_watches():
         return con.execute(
             """
             SELECT
-                id, chat_id, query, max_price, location,
-                initialized, last_checked_at
+                id,
+                chat_id,
+                query,
+                max_price,
+                location,
+                active,
+                initialized,
+                created_at,
+                last_checked_at
             FROM watches
             WHERE active = 1
             ORDER BY id ASC
@@ -113,17 +158,30 @@ def get_active_watches():
         ).fetchall()
 
 
-def get_watch(chat_id: int, watch_id: int):
+def get_watch(
+    chat_id: int,
+    watch_id: int,
+):
     with connect() as con:
         return con.execute(
             """
             SELECT
-                id, chat_id, query, max_price, location,
-                active, initialized, created_at, last_checked_at
+                id,
+                chat_id,
+                query,
+                max_price,
+                location,
+                active,
+                initialized,
+                created_at,
+                last_checked_at
             FROM watches
             WHERE chat_id = ? AND id = ?
             """,
-            (chat_id, watch_id),
+            (
+                chat_id,
+                watch_id,
+            ),
         ).fetchone()
 
 
@@ -132,8 +190,15 @@ def get_latest_watch(chat_id: int):
         return con.execute(
             """
             SELECT
-                id, chat_id, query, max_price, location,
-                active, initialized, created_at, last_checked_at
+                id,
+                chat_id,
+                query,
+                max_price,
+                location,
+                active,
+                initialized,
+                created_at,
+                last_checked_at
             FROM watches
             WHERE chat_id = ?
             ORDER BY id DESC
@@ -143,12 +208,22 @@ def get_latest_watch(chat_id: int):
         ).fetchone()
 
 
-def remove_watch(chat_id: int, watch_id: int) -> bool:
+def remove_watch(
+    chat_id: int,
+    watch_id: int,
+) -> bool:
     with connect() as con:
         cursor = con.execute(
-            "DELETE FROM watches WHERE chat_id = ? AND id = ?",
-            (chat_id, watch_id),
+            """
+            DELETE FROM watches
+            WHERE chat_id = ? AND id = ?
+            """,
+            (
+                chat_id,
+                watch_id,
+            ),
         )
+
         return cursor.rowcount > 0
 
 
@@ -162,10 +237,17 @@ def listing_was_seen(
             """
             SELECT id
             FROM seen_listings
-            WHERE watch_id = ? AND source = ? AND listing_id = ?
+            WHERE watch_id = ?
+              AND source = ?
+              AND listing_id = ?
             """,
-            (watch_id, source, listing_id),
+            (
+                watch_id,
+                source,
+                listing_id,
+            ),
         ).fetchone()
+
         return row is not None
 
 
@@ -177,21 +259,33 @@ def save_seen_listing(
     price: Optional[float],
     url: str,
     posted_text: Optional[str],
+    location: Optional[str] = None,
 ) -> None:
     with connect() as con:
         con.execute(
             """
             INSERT INTO seen_listings (
-                watch_id, source, listing_id, title,
-                price, url, posted_text
+                watch_id,
+                source,
+                listing_id,
+                title,
+                price,
+                url,
+                posted_text,
+                location
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(watch_id, source, listing_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(
+                watch_id,
+                source,
+                listing_id
+            )
             DO UPDATE SET
                 title = excluded.title,
                 price = excluded.price,
                 url = excluded.url,
                 posted_text = excluded.posted_text,
+                location = excluded.location,
                 last_seen_at = CURRENT_TIMESTAMP
             """,
             (
@@ -202,11 +296,14 @@ def save_seen_listing(
                 price,
                 url,
                 posted_text,
+                location,
             ),
         )
 
 
-def mark_watch_initialized(watch_id: int) -> None:
+def mark_watch_initialized(
+    watch_id: int,
+) -> None:
     with connect() as con:
         con.execute(
             """
@@ -219,7 +316,9 @@ def mark_watch_initialized(watch_id: int) -> None:
         )
 
 
-def update_watch_checked_time(watch_id: int) -> None:
+def update_watch_checked_time(
+    watch_id: int,
+) -> None:
     with connect() as con:
         con.execute(
             """
@@ -233,27 +332,44 @@ def update_watch_checked_time(watch_id: int) -> None:
 
 def get_seen_listings(
     watch_id: int,
-    limit: int = 30,
+    limit: int = 40,
 ):
     with connect() as con:
         return con.execute(
             """
             SELECT
-                source, listing_id, title, price, url,
-                posted_text, first_seen_at, last_seen_at
+                source,
+                listing_id,
+                title,
+                price,
+                url,
+                posted_text,
+                location,
+                first_seen_at,
+                last_seen_at
             FROM seen_listings
             WHERE watch_id = ?
             ORDER BY last_seen_at DESC, id DESC
             LIMIT ?
             """,
-            (watch_id, limit),
+            (
+                watch_id,
+                limit,
+            ),
         ).fetchall()
 
 
-def count_seen_listings(watch_id: int) -> int:
+def count_seen_listings(
+    watch_id: int,
+) -> int:
     with connect() as con:
         row = con.execute(
-            "SELECT COUNT(*) AS total FROM seen_listings WHERE watch_id = ?",
+            """
+            SELECT COUNT(*) AS total
+            FROM seen_listings
+            WHERE watch_id = ?
+            """,
             (watch_id,),
         ).fetchone()
+
         return int(row["total"])

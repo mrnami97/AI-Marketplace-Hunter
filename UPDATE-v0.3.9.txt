@@ -1,0 +1,52 @@
+AI Marketplace Hunter v0.3.9
+Live Telegram Search Progress
+
+NEW FEATURE
+
+During /search, the bot edits one Telegram message with:
+
+- a 20-segment progress bar
+- live percentage
+- Carousell status
+- Facebook Kota Kinabalu status
+- Facebook Kuala Lumpur status
+- current search activity
+- number of Facebook cards collected during scrolling
+
+EXAMPLE
+
+🔎 Searching RTX 3070
+
+██████████░░░░░░░░░░ 50%
+
+🟠 Carousell: ✅ Completed
+🔵 Facebook Kota Kinabalu: 🔄 Searching
+🔵 Facebook Kuala Lumpur: ⏳ Waiting
+
+ℹ️ Facebook Kota Kinabalu: scroll 6/15, 74 cards collected
+
+The same message is edited instead of sending many chat messages.
+
+INSTALL
+
+1. Stop the bot:
+
+   Ctrl+C
+
+2. Extract this ZIP and replace the project files.
+
+3. Start:
+
+   py app.py
+
+4. Test:
+
+   /search RTX 3070 under RM1200 cheapest
+
+NOTES
+
+- Progress is approximate because webpage loading time varies.
+- Updates are throttled to avoid Telegram rate limits.
+- Watcher background checks remain silent and do not create progress messages.
+- Carousell still uses sort_by=3.
+- Facebook still captures virtual-scroll cards during every scroll round.

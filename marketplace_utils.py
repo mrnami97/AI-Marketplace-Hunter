@@ -34,14 +34,27 @@ BLOCKED_PHRASES = {
 }
 
 ACCESSORY_WORDS = {
-    "fan", "cooler", "heatsink", "backplate",
-    "waterblock", "water block", "pcb", "box", "kotak",
+    "fan",
+    "cooler",
+    "heatsink",
+    "backplate",
+    "waterblock",
+    "pcb",
+    "box",
+    "kotak",
 }
 
 ACCESSORY_INTENT_WORDS = {
-    "only", "replacement", "replace", "compatible",
-    "compatibility", "spare", "part", "parts",
-    "accessory", "accessories",
+    "only",
+    "replacement",
+    "replace",
+    "compatible",
+    "compatibility",
+    "spare",
+    "part",
+    "parts",
+    "accessory",
+    "accessories",
 }
 
 STOP_WORDS = {
@@ -50,13 +63,22 @@ STOP_WORDS = {
 }
 
 GPU_MODEL_PATTERN = re.compile(
-    r"\b(?:rtx|gtx|rx|arc)?\s*"
-    r"(?:10[567]0|16[056]0|20[678]0|30[5689]0|3070|3080|3090|"
+    r"\b(?P<brand>rtx|gtx|rx|arc)?\s*"
+    r"(?P<number>"
+    r"10[567]0|16[056]0|20[678]0|30[5689]0|3070|3080|3090|"
     r"40[6789]0|50[789]0|5[567]00|6[56789]00|7[6789]00|"
-    r"a[357]80|a[357]50|a770|b570|b580)"
-    r"(?:\s*ti|\s*super|\s*xt|\s*gre|\s*s)?\b",
+    r"a[357]80|a[357]50|a770|b570|b580"
+    r")"
+    r"(?P<suffix>\s*ti|\s*super|\s*xt|\s*gre|\s*s)?\b",
     flags=re.IGNORECASE,
 )
+
+
+@dataclass(frozen=True)
+class ModelToken:
+    brand: str
+    number: str
+    suffix: str
 
 
 @dataclass(frozen=True)
@@ -82,166 +104,273 @@ def normalize_text(text: str) -> str:
 
 def compact_model_text(text: str) -> str:
     value = re.sub(r"[^a-z0-9]", "", text.lower())
-
-    # Common marketplace abbreviations.
-    value = re.sub(r"(20[678]0|30[678]0|40[678]0)s\b", r"\1super", value)
-    value = value.replace("sup", "super")
-
-    return value
-
-
-def query_terms(query: str) -> list[str]:
-    normalized = normalize_text(query)
-    parts = re.findall(r"[a-z0-9]+", normalized)
-
-    return [
-        part
-        for part in parts
-        if part not in STOP_WORDS and len(part) >= 2
-    ]
+    value = re.sub(
+        r"(20[678]0|30[678]0|40[678]0)s\b",
+        r"\1super",
+        value,
+    )
+    return value.replace("sup", "super")
 
 
-def canonicalize_model(model: str) -> str:
-    value = compact_model_text(model)
-    value = re.sub(r"^(rtx|gtx|rx|arc)", "", value)
+def _canonical_suffix(value: str) -> str:
+    suffix = re.sub(r"\s+", "", value.lower())
 
-    # Treat 2070S and 2070 Super as the same model.
-    value = re.sub(r"^(20[678]0|30[678]0|40[678]0)s$", r"\1super", value)
+    if suffix == "s":
+        return "super"
 
-    return value
+    return suffix
 
 
-def extract_gpu_models(text: str) -> set[str]:
-    models = set()
+def extract_model_tokens(text: str) -> list[ModelToken]:
+    tokens: list[ModelToken] = []
 
     for match in GPU_MODEL_PATTERN.finditer(text):
-        model = canonicalize_model(match.group(0))
-        if model:
-            models.add(model)
+        tokens.append(
+            ModelToken(
+                brand=(match.group("brand") or "").lower(),
+                number=match.group("number").lower(),
+                suffix=_canonical_suffix(
+                    match.group("suffix") or ""
+                ),
+            )
+        )
 
-    # Catch compact forms such as RTX2070S.
     compact = compact_model_text(text)
-    compact_matches = re.findall(
-        r"(?:rtx|gtx|rx|arc)?"
-        r"(20[678]0|30[5689]0|40[6789]0)"
-        r"(ti|super|s)?",
-        compact,
+
+    compact_pattern = re.compile(
+        r"(?P<brand>rtx|gtx|rx|arc)?"
+        r"(?P<number>"
+        r"10[567]0|16[056]0|20[678]0|30[5689]0|3070|3080|3090|"
+        r"40[6789]0|50[789]0|5[567]00|6[56789]00|7[6789]00|"
+        r"a[357]80|a[357]50|a770|b570|b580"
+        r")"
+        r"(?P<suffix>ti|super|s|xt|gre)?"
     )
 
-    for number, suffix in compact_matches:
-        canonical_suffix = "super" if suffix == "s" else suffix
-        models.add(f"{number}{canonical_suffix}")
+    for match in compact_pattern.finditer(compact):
+        token = ModelToken(
+            brand=(match.group("brand") or "").lower(),
+            number=match.group("number").lower(),
+            suffix=_canonical_suffix(
+                match.group("suffix") or ""
+            ),
+        )
 
-    return models
+        if token not in tokens:
+            tokens.append(token)
+
+    return tokens
 
 
-def query_gpu_models(query: str) -> set[str]:
-    return extract_gpu_models(query)
+def model_matches_query(
+    title: str,
+    query: str,
+) -> bool:
+    """
+    Match only the requested GPU family.
 
+    Examples:
+    - Query RTX 3070 accepts RTX 3070 and RTX 3070 Ti.
+    - Query RTX 3070 Ti requires RTX 3070 Ti.
+    - Query GTX 1660 accepts GTX 1660 and GTX 1660 Super/Ti.
+    - RTX 3070 search does not accept GTX 1660, RTX 3060 or RTX 3080.
 
-def has_exact_query_model(title: str, query: str) -> bool:
-    wanted = query_gpu_models(query)
-    found = extract_gpu_models(title)
+    This is matching logic, not a global blacklist. Searching for GTX 1660
+    later will still return GTX 1660 listings normally.
+    """
+    query_tokens = extract_model_tokens(query)
 
-    if not wanted:
+    if not query_tokens:
         return True
 
-    return bool(wanted.intersection(found))
+    title_tokens = extract_model_tokens(title)
+
+    if not title_tokens:
+        return False
+
+    for wanted in query_tokens:
+        for found in title_tokens:
+            if wanted.number != found.number:
+                continue
+
+            if wanted.brand and found.brand and wanted.brand != found.brand:
+                continue
+
+            # A query with a specific suffix requires that exact suffix.
+            if wanted.suffix:
+                if wanted.suffix != found.suffix:
+                    continue
+
+            # A query without a suffix accepts the base family and variants.
+            return True
+
+    return False
 
 
-def is_multi_model_ad(title: str, query: str) -> bool:
-    title_models = extract_gpu_models(title)
-    wanted_models = query_gpu_models(query)
-    unrelated_models = title_models - wanted_models
-
-    return len(title_models) >= 5 or len(unrelated_models) >= 4
-
-
-def is_blocked_listing(title: str, query: str = "") -> bool:
+def is_blocked_listing(
+    title: str,
+    query: str = "",
+) -> bool:
     normalized = normalize_text(title)
 
-    if any(phrase in normalized for phrase in BLOCKED_PHRASES):
+    if any(
+        phrase in normalized
+        for phrase in BLOCKED_PHRASES
+    ):
         return True
 
-    words = set(re.findall(r"[a-z0-9]+", normalized))
-    accessory_present = bool(words.intersection(ACCESSORY_WORDS))
-    accessory_intent = bool(words.intersection(ACCESSORY_INTENT_WORDS))
-    exact_model = has_exact_query_model(title, query)
-
-    if accessory_present and accessory_intent:
+    # The title must match the requested model family.
+    if query and not model_matches_query(
+        title,
+        query,
+    ):
         return True
 
-    if accessory_present and query and not exact_model:
-        return True
+    words = set(
+        re.findall(
+            r"[a-z0-9]+",
+            normalized,
+        )
+    )
 
-    if query and is_multi_model_ad(title, query) and accessory_present:
+    accessory_present = bool(
+        words.intersection(
+            ACCESSORY_WORDS
+        )
+    )
+
+    accessory_intent = bool(
+        words.intersection(
+            ACCESSORY_INTENT_WORDS
+        )
+    )
+
+    if (
+        accessory_present
+        and accessory_intent
+    ):
         return True
 
     return False
 
 
-def relevance_score(title: str, query: str) -> int:
-    wanted_models = query_gpu_models(query)
-    title_models = extract_gpu_models(title)
+def query_terms(query: str) -> list[str]:
+    parts = re.findall(
+        r"[a-z0-9]+",
+        normalize_text(query),
+    )
 
-    if wanted_models:
-        if not wanted_models.intersection(title_models):
-            return 0
+    return [
+        part
+        for part in parts
+        if part not in STOP_WORDS
+        and len(part) >= 2
+    ]
 
-        unrelated = title_models - wanted_models
 
-        if len(unrelated) >= 4:
-            return 45
-        if len(unrelated) == 3:
-            return 60
-        if len(unrelated) == 2:
-            return 72
-        if len(unrelated) == 1:
-            return 82
+def relevance_score(
+    title: str,
+    query: str,
+) -> int:
+    if not model_matches_query(
+        title,
+        query,
+    ):
+        return 0
+
+    query_tokens = extract_model_tokens(query)
+    title_tokens = extract_model_tokens(title)
+
+    score = 70
+
+    if query_tokens:
+        wanted = query_tokens[0]
+
+        exact_suffix_match = any(
+            token.number == wanted.number
+            and (
+                not wanted.brand
+                or not token.brand
+                or token.brand == wanted.brand
+            )
+            and token.suffix == wanted.suffix
+            for token in title_tokens
+        )
+
+        same_family_variant = any(
+            token.number == wanted.number
+            and (
+                not wanted.brand
+                or not token.brand
+                or token.brand == wanted.brand
+            )
+            for token in title_tokens
+        )
+
+        if exact_suffix_match:
+            score = 100
+        elif same_family_variant:
+            score = 90
 
     terms = query_terms(query)
-
-    if not terms:
-        return 60
-
     normalized_title = normalize_text(title)
     compact_title = compact_model_text(title)
 
-    matched = sum(
-        1
+    non_model_terms = [
+        term
         for term in terms
-        if term in normalized_title
-        or compact_model_text(term) in compact_title
-        or (
-            term == "super"
-            and re.search(r"(20[678]0|30[678]0|40[678]0)s\b", compact_title)
+        if not any(
+            term in {
+                token.brand,
+                token.number,
+                token.suffix,
+            }
+            for token in query_tokens
         )
+    ]
+
+    if non_model_terms:
+        matched = sum(
+            1
+            for term in non_model_terms
+            if term in normalized_title
+            or compact_model_text(term)
+            in compact_title
+        )
+
+        score += round(
+            10 * matched
+            / len(non_model_terms)
+        )
+
+    return max(
+        0,
+        min(score, 100),
     )
 
-    ratio = matched / len(terms)
-    score = int(ratio * 80)
 
-    if wanted_models:
-        score += 20
-
-    return max(0, min(score, 100))
-
-
-def posted_age_minutes(posted_text: str | None) -> int:
+def posted_age_minutes(
+    posted_text: str | None,
+) -> int:
     if not posted_text:
         return 10**9
 
     text = normalize_text(posted_text)
 
-    if "just now" in text:
+    if (
+        "just now" in text
+        or "just listed" in text
+    ):
         return 0
+
     if text == "today":
         return 12 * 60
+
     if text == "yesterday":
         return 24 * 60
 
     match = re.search(
-        r"(\d+)\s+"
+        r"(?:listed\s+)?(\d+)\s+"
         r"(minute|minutes|hour|hours|day|days|week|weeks|"
         r"month|months|year|years)\s+ago",
         text,
@@ -271,7 +400,9 @@ def posted_age_minutes(posted_text: str | None) -> int:
     return value * multipliers[unit]
 
 
-def freshness_score_from_minutes(age_minutes: int) -> int:
+def freshness_score_from_minutes(
+    age_minutes: int,
+) -> int:
     if age_minutes <= 10:
         return 100
     if age_minutes <= 60:
@@ -288,45 +419,74 @@ def freshness_score_from_minutes(age_minutes: int) -> int:
         return 40
     if age_minutes <= 30 * 24 * 60:
         return 25
+
     return 0
 
 
 def logical_price_bounds(
     listings: list[Any],
-) -> tuple[float | None, float | None]:
+) -> tuple[
+    float | None,
+    float | None,
+]:
     prices = sorted(
         float(item.price)
         for item in listings
-        if getattr(item, "price", None) is not None
+        if getattr(
+            item,
+            "price",
+            None,
+        )
+        is not None
         and float(item.price) >= 100
     )
 
-    # Do not over-filter small searches.
     if len(prices) < 6:
         return None, None
 
-    start = max(0, len(prices) // 5)
-    typical_prices = prices[start:]
-    typical = median(typical_prices)
+    start = max(
+        0,
+        len(prices) // 5,
+    )
 
-    # Wider lower bound to keep genuine bargains.
-    lower = max(100.0, typical * 0.35)
-    upper = typical * 2.50
+    typical = median(
+        prices[start:]
+    )
 
-    return lower, upper
+    return (
+        max(
+            100.0,
+            typical * 0.35,
+        ),
+        typical * 2.50,
+    )
 
 
-def filter_logical_prices(listings: list[Any]) -> list[Any]:
-    lower, upper = logical_price_bounds(listings)
+def filter_logical_prices(
+    listings: list[Any],
+) -> list[Any]:
+    lower, upper = logical_price_bounds(
+        listings
+    )
 
-    if lower is None or upper is None:
+    if (
+        lower is None
+        or upper is None
+    ):
         return listings
 
     return [
         listing
         for listing in listings
-        if getattr(listing, "price", None) is not None
-        and lower <= float(listing.price) <= upper
+        if getattr(
+            listing,
+            "price",
+            None,
+        )
+        is not None
+        and lower
+        <= float(listing.price)
+        <= upper
     ]
 
 
@@ -337,7 +497,11 @@ def calculate_price_score(
     if price is None:
         return 20
 
-    values = sorted(value for value in comparison_prices if value > 0)
+    values = sorted(
+        value
+        for value in comparison_prices
+        if value > 0
+    )
 
     if not values:
         return 60
@@ -361,44 +525,89 @@ def calculate_price_score(
         return 75
     if ratio <= 1.35:
         return 50
+
     return 25
 
 
-def score_listings(listings: list[Any], query: str) -> list[ScoredListing]:
-    logical_listings = filter_logical_prices(listings)
+def score_listings(
+    listings: list[Any],
+    query: str,
+) -> list[ScoredListing]:
+    matching_listings = [
+        listing
+        for listing in listings
+        if not is_blocked_listing(
+            getattr(
+                listing,
+                "title",
+                "",
+            )
+            or "",
+            query,
+        )
+    ]
+
+    logical_listings = filter_logical_prices(
+        matching_listings
+    )
 
     prices = [
         float(item.price)
         for item in logical_listings
-        if getattr(item, "price", None) is not None
+        if getattr(
+            item,
+            "price",
+            None,
+        )
+        is not None
     ]
 
-    scored = []
+    scored: list[ScoredListing] = []
 
     for listing in logical_listings:
-        title = getattr(listing, "title", "") or ""
+        title = (
+            getattr(
+                listing,
+                "title",
+                "",
+            )
+            or ""
+        )
 
-        if is_blocked_listing(title, query):
-            continue
+        relevance = relevance_score(
+            title,
+            query,
+        )
 
-        relevance = relevance_score(title, query)
-
-        # Reduced from 70 to 60 to avoid hiding valid abbreviations.
-        if relevance < 60:
+        if relevance < 80:
             continue
 
         age_minutes = posted_age_minutes(
-            getattr(listing, "posted_text", None)
+            getattr(
+                listing,
+                "posted_text",
+                None,
+            )
         )
-        freshness = freshness_score_from_minutes(age_minutes)
+
+        freshness = (
+            freshness_score_from_minutes(
+                age_minutes
+            )
+        )
+
         price = calculate_price_score(
-            getattr(listing, "price", None),
+            getattr(
+                listing,
+                "price",
+                None,
+            ),
             prices,
         )
 
         final_score = round(
-            relevance * 0.50
-            + freshness * 0.30
+            relevance * 0.55
+            + freshness * 0.25
             + price * 0.20
         )
 
@@ -439,10 +648,14 @@ def sort_scored(
         return sorted(
             items,
             key=lambda item: (
-                item.listing.price is None,
                 item.listing.price
-                if item.listing.price is not None
-                else math.inf,
+                is None,
+                (
+                    item.listing.price
+                    if item.listing.price
+                    is not None
+                    else math.inf
+                ),
                 item.age_minutes,
             ),
         )
@@ -472,10 +685,13 @@ def score_emoji(score: int) -> str:
         return "🟡"
     if score >= 65:
         return "🟠"
+
     return "🔴"
 
 
-def short_age(posted_text: str | None) -> str:
+def short_age(
+    posted_text: str | None,
+) -> str:
     if not posted_text:
         return "Unknown"
 
@@ -497,6 +713,9 @@ def short_age(posted_text: str | None) -> str:
     result = posted_text
 
     for old, new in replacements.items():
-        result = result.replace(old, new)
+        result = result.replace(
+            old,
+            new,
+        )
 
     return result[:10]

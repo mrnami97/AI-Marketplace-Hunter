@@ -1,10 +1,10 @@
 import html
+import time
 from types import SimpleNamespace
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from crawler.carousell import search_carousell
 from database import (
     add_watch,
     count_seen_listings,
@@ -13,6 +13,9 @@ from database import (
     get_watch,
     get_watches,
     remove_watch as db_remove_watch,
+)
+from marketplace_search import (
+    search_marketplace_groups,
 )
 from marketplace_utils import (
     is_blocked_listing,
@@ -27,37 +30,65 @@ from watcher import check_one_watch
 
 
 WELCOME = """
-🤖 AI Marketplace Hunter v0.2.2
+🤖 AI Marketplace Hunter v0.3.9
 
-/search RTX 3070 under RM1200 best
-/search RTX 3070 under RM1200 newest
+Results are split into:
+• 15 Carousell
+• 15 Facebook Kota Kinabalu
+• 15 Facebook Kuala Lumpur
+
 /search RTX 3070 under RM1200 cheapest
+/search RTX 3070 under RM1200 newest
+/search RTX 3070 under RM1200 best
+
 /watch RTX 3070 under RM1200
 /list
 /remove 1
 /current
-/current 2 newest
-/current 2 cheapest
-/current 2 best
-/check 2
+/check 1
 /status
 """.strip()
 
 
-def extract_sort_mode(raw: str) -> tuple[str, str]:
+def extract_sort_mode(
+    raw: str,
+) -> tuple[str, str]:
     words = raw.strip().split()
 
-    if words and words[-1].lower() in {"best", "newest", "cheapest"}:
-        return " ".join(words[:-1]), words[-1].lower()
+    if (
+        words
+        and words[-1].lower()
+        in {
+            "best",
+            "newest",
+            "cheapest",
+        }
+    ):
+        return (
+            " ".join(words[:-1]),
+            words[-1].lower(),
+        )
 
     return raw, "best"
 
 
-def build_summary_message(
+def build_group_message(
     heading: str,
-    scored_items: list,
+    listings: list,
+    query: str,
     sort_mode: str,
-) -> str:
+) -> str | None:
+    scored = sort_scored(
+        score_listings(
+            listings,
+            query,
+        ),
+        sort_mode,
+    )[:15]
+
+    if not scored:
+        return None
+
     rows = [
         f"<b>{html.escape(heading)}</b>",
         f"Sort: <b>{html.escape(sort_mode.title())}</b>",
@@ -69,24 +100,50 @@ def build_summary_message(
 
     links = []
 
-    for index, scored in enumerate(scored_items, start=1):
-        listing = scored.listing
+    for index, scored_item in enumerate(
+        scored,
+        start=1,
+    ):
+        listing = scored_item.listing
+
         price = (
             f"RM{listing.price:,.0f}"
             if listing.price is not None
             else "Unknown"
         )
-        age = short_age(listing.posted_text)
 
-        rows.append(
-            f"{index:<2} {price:<8} {age:<9} "
-            f"{score_emoji(scored.score)}{scored.score}"
+        age = short_age(
+            listing.posted_text
         )
 
-        safe_url = html.escape(listing.url, quote=True)
-        safe_title = html.escape(listing.title[:55])
+        rows.append(
+            f"{index:<2} "
+            f"{price:<8} "
+            f"{age:<9} "
+            f"{score_emoji(scored_item.score)}"
+            f"{scored_item.score}"
+        )
+
+        safe_url = html.escape(
+            listing.url,
+            quote=True,
+        )
+
+        safe_title = html.escape(
+            listing.title[:58]
+        )
+
+        location = html.escape(
+            listing.location
+            or "Not shown"
+        )
+
         links.append(
-            f'{index}. <a href="{safe_url}">Click Here</a> — {safe_title}'
+            f'{index}. '
+            f'<a href="{safe_url}">'
+            f'Click Here</a> — '
+            f'{safe_title} '
+            f'[{location}]'
         )
 
     rows.extend(
@@ -101,73 +158,247 @@ def build_summary_message(
     return "\n".join(rows)
 
 
+def build_progress_message(
+    query: str,
+    percentage: int,
+    detail: str,
+) -> str:
+    percentage = max(
+        0,
+        min(100, percentage),
+    )
+
+    filled = round(
+        percentage / 5
+    )
+
+    bar = (
+        "█" * filled
+        + "░" * (20 - filled)
+    )
+
+    if percentage < 10:
+        carousell_status = "⏳ Waiting"
+        kk_status = "⏳ Waiting"
+        kl_status = "⏳ Waiting"
+
+    elif percentage < 35:
+        carousell_status = "🔄 Searching"
+        kk_status = "⏳ Waiting"
+        kl_status = "⏳ Waiting"
+
+    elif percentage < 40:
+        carousell_status = "✅ Completed"
+        kk_status = "⏳ Waiting"
+        kl_status = "⏳ Waiting"
+
+    elif percentage < 65:
+        carousell_status = "✅ Completed"
+        kk_status = "🔄 Searching"
+        kl_status = "⏳ Waiting"
+
+    elif percentage < 90:
+        carousell_status = "✅ Completed"
+        kk_status = "✅ Completed"
+        kl_status = "🔄 Searching"
+
+    else:
+        carousell_status = "✅ Completed"
+        kk_status = "✅ Completed"
+        kl_status = "✅ Completed"
+
+    return (
+        f"🔎 <b>Searching {html.escape(query)}</b>\n\n"
+        f"<code>{bar}</code> "
+        f"<b>{percentage}%</b>\n\n"
+        f"🟠 Carousell: {carousell_status}\n"
+        f"🔵 Facebook Kota Kinabalu: "
+        f"{kk_status}\n"
+        f"🔵 Facebook Kuala Lumpur: "
+        f"{kl_status}\n\n"
+        f"ℹ️ {html.escape(detail)}"
+    )
+
+
+class TelegramProgressUpdater:
+    def __init__(
+        self,
+        message,
+        query: str,
+    ) -> None:
+        self.message = message
+        self.query = query
+        self.last_percentage = -1
+        self.last_update_time = 0.0
+        self.last_text = ""
+
+    async def update(
+        self,
+        percentage: int,
+        detail: str,
+    ) -> None:
+        now = time.monotonic()
+
+        # Avoid Telegram edit-rate limits while still keeping the display live.
+        should_update = (
+            percentage >= 100
+            or percentage - self.last_percentage >= 3
+            or now - self.last_update_time >= 2.0
+        )
+
+        if not should_update:
+            return
+
+        text = build_progress_message(
+            query=self.query,
+            percentage=percentage,
+            detail=detail,
+        )
+
+        if text == self.last_text:
+            return
+
+        try:
+            await self.message.edit_text(
+                text,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+
+            self.last_percentage = percentage
+            self.last_update_time = now
+            self.last_text = text
+
+        except Exception:
+            # A progress update must never stop the actual marketplace search.
+            pass
+
+
 async def start(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    await update.message.reply_text(WELCOME)
+    await update.message.reply_text(
+        WELCOME
+    )
 
 
 async def help_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    await update.message.reply_text(WELCOME)
+    await update.message.reply_text(
+        WELCOME
+    )
 
 
 async def search(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    raw = " ".join(context.args).strip()
+    raw = " ".join(
+        context.args
+    ).strip()
 
     if not raw:
         await update.message.reply_text(
-            "Usage:\n/search RTX 3070 under RM1200 best"
+            "Usage:\n"
+            "/search RTX 3070 "
+            "under RM1200 cheapest"
         )
         return
 
-    cleaned_raw, sort_mode = extract_sort_mode(raw)
-    request = parse_request(cleaned_raw)
+    cleaned_raw, sort_mode = (
+        extract_sort_mode(raw)
+    )
 
-    status_message = await update.message.reply_text(
-        f"🔎 Searching Carousell for:\n{request.query}"
+    request = parse_request(
+        cleaned_raw
+    )
+
+    status_message = (
+        await update.message.reply_text(
+            build_progress_message(
+                query=request.query,
+                percentage=0,
+                detail="Waiting to start",
+            ),
+            parse_mode="HTML",
+        )
+    )
+
+    progress = TelegramProgressUpdater(
+        message=status_message,
+        query=request.query,
     )
 
     try:
-        listings = await search_carousell(
+        grouped = await search_marketplace_groups(
             query=request.query,
             max_price=request.max_price,
-            max_results=15,
+            location=None,
+            progress_callback=progress.update,
         )
 
-        scored = sort_scored(
-            score_listings(listings, request.query),
-            sort_mode,
+        await progress.update(
+            100,
+            "Preparing Telegram result tables",
         )
-
-        if not scored:
-            await status_message.edit_text(
-                "No fresh matching listings found after filtering."
-            )
-            return
-
         await status_message.delete()
 
-        await update.message.reply_text(
-            build_summary_message(
-                heading=f"🔍 {request.query} — {len(scored)} results",
-                scored_items=scored,
-                sort_mode=sort_mode,
+        groups = [
+            (
+                "🟠 Carousell — Up to 15",
+                grouped.carousell,
             ),
-            parse_mode="HTML",
-            disable_web_page_preview=True,
-        )
+            (
+                "🔵 Facebook Kota Kinabalu — Up to 15",
+                grouped.facebook_kota_kinabalu,
+            ),
+            (
+                "🔵 Facebook Kuala Lumpur — Up to 15",
+                grouped.facebook_kuala_lumpur,
+            ),
+        ]
+
+        sent_any = False
+
+        for heading, listings in groups:
+            message = build_group_message(
+                heading=heading,
+                listings=listings,
+                query=request.query,
+                sort_mode=sort_mode,
+            )
+
+            if message is None:
+                await update.message.reply_text(
+                    f"{heading}\n\n"
+                    "No matching listings found."
+                )
+                continue
+
+            sent_any = True
+
+            await update.message.reply_text(
+                message,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+
+        if not sent_any:
+            await update.message.reply_text(
+                "No matching listings found "
+                "from any source."
+            )
 
     except Exception as error:
-        print(f"Search error: {error}")
+        print(
+            f"Search error: {error}"
+        )
+
         await status_message.edit_text(
-            "❌ Carousell search failed.\n"
+            "❌ Marketplace search failed.\n"
             "Check the VS Code terminal."
         )
 
@@ -176,11 +407,15 @@ async def watch(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    raw = " ".join(context.args).strip()
+    raw = " ".join(
+        context.args
+    ).strip()
 
     if not raw:
         await update.message.reply_text(
-            "Usage:\n/watch RTX 3070 under RM1200"
+            "Usage:\n"
+            "/watch RTX 3070 "
+            "under RM1200"
         )
         return
 
@@ -190,7 +425,7 @@ async def watch(
         chat_id=update.effective_chat.id,
         query=request.query,
         max_price=request.max_price,
-        location=request.location,
+        location=None,
     )
 
     price_text = (
@@ -204,7 +439,10 @@ async def watch(
         f"ID: {watch_id}\n"
         f"Item: {request.query}\n"
         f"Maximum price: {price_text}\n\n"
-        "It will initialize during the next check."
+        "This watch checks:\n"
+        "• Carousell\n"
+        "• Facebook Kota Kinabalu\n"
+        "• Facebook Kuala Lumpur"
     )
 
 
@@ -212,10 +450,14 @@ async def list_watches(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    watches = get_watches(update.effective_chat.id)
+    watches = get_watches(
+        update.effective_chat.id
+    )
 
     if not watches:
-        await update.message.reply_text("No watchlists yet.")
+        await update.message.reply_text(
+            "No watchlists yet."
+        )
         return
 
     rows = [
@@ -232,8 +474,14 @@ async def list_watches(
             if item["max_price"] is not None
             else "Any"
         )
+
         query = item["query"][:18]
-        rows.append(f"{item['id']:<3} {query:<19} {price}")
+
+        rows.append(
+            f"{item['id']:<3} "
+            f"{query:<19} "
+            f"{price}"
+        )
 
     rows.append("</pre>")
 
@@ -247,11 +495,19 @@ async def remove_watch(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    if not context.args or not context.args[0].isdigit():
-        await update.message.reply_text("Usage:\n/remove 1")
+    if (
+        not context.args
+        or not context.args[0].isdigit()
+    ):
+        await update.message.reply_text(
+            "Usage:\n/remove 1"
+        )
         return
 
-    watch_id = int(context.args[0])
+    watch_id = int(
+        context.args[0]
+    )
+
     deleted = db_remove_watch(
         update.effective_chat.id,
         watch_id,
@@ -260,7 +516,10 @@ async def remove_watch(
     await update.message.reply_text(
         f"🗑 Watch #{watch_id} removed."
         if deleted
-        else f"Watch #{watch_id} was not found."
+        else (
+            f"Watch #{watch_id} "
+            "was not found."
+        )
     )
 
 
@@ -270,66 +529,108 @@ async def current_listings(
 ) -> None:
     chat_id = update.effective_chat.id
     args = list(context.args)
-
     sort_mode = "best"
-    if args and args[-1].lower() in {"best", "newest", "cheapest"}:
+
+    if (
+        args
+        and args[-1].lower()
+        in {
+            "best",
+            "newest",
+            "cheapest",
+        }
+    ):
         sort_mode = args.pop().lower()
 
     if args and args[0].isdigit():
-        watch_item = get_watch(chat_id, int(args[0]))
+        watch_item = get_watch(
+            chat_id,
+            int(args[0]),
+        )
     else:
-        watch_item = get_latest_watch(chat_id)
+        watch_item = get_latest_watch(
+            chat_id
+        )
 
     if watch_item is None:
-        await update.message.reply_text("No watch found.")
+        await update.message.reply_text(
+            "No watch found."
+        )
         return
 
     rows = get_seen_listings(
         watch_id=int(watch_item["id"]),
-        limit=40,
+        limit=100,
     )
 
-    listings = []
+    grouped = {
+        "Carousell": [],
+        "Facebook Kota Kinabalu": [],
+        "Facebook Kuala Lumpur": [],
+    }
+
     for row in rows:
-        if is_blocked_listing(row["title"] or ""):
-            continue
-        if posted_age_minutes(row["posted_text"]) > 30 * 24 * 60:
+        title = (
+            row["title"]
+            or "Unknown listing"
+        )
+
+        if is_blocked_listing(
+            title,
+            watch_item["query"],
+        ):
             continue
 
-        listings.append(
-            SimpleNamespace(
-                source=row["source"],
-                listing_id=row["listing_id"],
-                title=row["title"] or "Unknown listing",
-                price=row["price"],
-                url=row["url"],
-                posted_text=row["posted_text"],
+        listing = SimpleNamespace(
+            source=row["source"],
+            listing_id=row["listing_id"],
+            title=title,
+            price=row["price"],
+            url=row["url"],
+            posted_text=row["posted_text"],
+            location=row["location"],
+        )
+
+        if row["source"] == "Carousell":
+            if (
+                posted_age_minutes(
+                    row["posted_text"]
+                ) > 30 * 24 * 60
+            ):
+                continue
+
+            grouped["Carousell"].append(
+                listing
             )
-        )
 
-    scored = sort_scored(
-        score_listings(listings, watch_item["query"]),
-        sort_mode,
-    )[:15]
+        elif (
+            row["location"]
+            and "kota kinabalu"
+            in row["location"].lower()
+        ):
+            grouped[
+                "Facebook Kota Kinabalu"
+            ].append(listing)
 
-    if not scored:
-        await update.message.reply_text(
-            f"Watch #{watch_item['id']} has no fresh saved listings."
-        )
-        return
+        else:
+            grouped[
+                "Facebook Kuala Lumpur"
+            ].append(listing)
 
-    await update.message.reply_text(
-        build_summary_message(
-            heading=(
-                f"📦 Watch #{watch_item['id']} — "
-                f"{watch_item['query']}"
-            ),
-            scored_items=scored,
+    for heading, listings in grouped.items():
+        message = build_group_message(
+            heading=heading,
+            listings=listings,
+            query=watch_item["query"],
             sort_mode=sort_mode,
-        ),
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-    )
+        )
+
+        if message:
+            await update.message.reply_text(
+                message,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
 
 
 async def manual_check(
@@ -338,17 +639,30 @@ async def manual_check(
 ) -> None:
     chat_id = update.effective_chat.id
 
-    if context.args and context.args[0].isdigit():
-        watch_item = get_watch(chat_id, int(context.args[0]))
+    if (
+        context.args
+        and context.args[0].isdigit()
+    ):
+        watch_item = get_watch(
+            chat_id,
+            int(context.args[0]),
+        )
     else:
-        watch_item = get_latest_watch(chat_id)
+        watch_item = get_latest_watch(
+            chat_id
+        )
 
     if watch_item is None:
-        await update.message.reply_text("Watch not found.")
+        await update.message.reply_text(
+            "Watch not found."
+        )
         return
 
-    status_message = await update.message.reply_text(
-        f"🔄 Checking Watch #{watch_item['id']}..."
+    status_message = (
+        await update.message.reply_text(
+            f"🔄 Checking Watch "
+            f"#{watch_item['id']}..."
+        )
     )
 
     try:
@@ -359,38 +673,64 @@ async def manual_check(
         )
 
         await status_message.edit_text(
-            f"✅ Check completed\n\n"
-            f"Filtered listings: {result['total_found']}\n"
-            f"New listings: {result['new_found']}"
+            "✅ Check completed\n\n"
+            f"Listings: "
+            f"{result['total_found']}\n"
+            f"New listings: "
+            f"{result['new_found']}"
         )
 
     except Exception as error:
-        print(f"Manual check error: {error}")
-        await status_message.edit_text("❌ Check failed.")
+        print(
+            f"Manual check error: {error}"
+        )
+
+        await status_message.edit_text(
+            "❌ Check failed."
+        )
 
 
 async def status_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    watches = get_watches(update.effective_chat.id)
+    watches = get_watches(
+        update.effective_chat.id
+    )
 
     lines = [
         "🤖 <b>AI Marketplace Hunter</b>",
         "",
+        "Version: v0.3.9",
         "Status: Running ✅",
+        "Results per search:",
+        "• 15 Carousell",
+        "• 15 Facebook Kota Kinabalu",
+        "• 15 Facebook Kuala Lumpur",
         "Scheduler: Every 5 minutes",
-        f"Active watches: {sum(1 for item in watches if item['active'])}",
+        (
+            "Active watches: "
+            f"{sum(1 for item in watches if item['active'])}"
+        ),
         "",
     ]
 
     for item in watches:
         lines.extend(
             [
-                f"<b>Watch #{item['id']} — "
-                f"{html.escape(item['query'])}</b>",
-                f"Saved: {count_seen_listings(int(item['id']))}",
-                f"Last check: {html.escape(item['last_checked_at'] or 'Not checked')}",
+                (
+                    f"<b>Watch #{item['id']} — "
+                    f"{html.escape(item['query'])}"
+                    "</b>"
+                ),
+                (
+                    "Saved: "
+                    f"{count_seen_listings(int(item['id']))}"
+                ),
+                (
+                    "Last check: "
+                    f"{html.escape(item['last_checked_at'] or 'Not checked')}"
+                ),
                 "",
             ]
         )

@@ -1,0 +1,62 @@
+AI Marketplace Hunter v0.3.6
+Facebook Card Matching Fix
+
+ROOT CAUSE
+
+Facebook detail pages contain recommended listings. The previous parser could
+select a recommended "MSI RTX 3070" title and reuse it for unrelated links such
+as GTX 1660, RTX 3060, or GTX 1070.
+
+The crawler also shared one URL duplicate set across Kota Kinabalu and Kuala
+Lumpur. If Facebook returned overlapping results, the KK search could consume
+the URLs and leave the KL section empty.
+
+FIXES
+
+1. The Facebook search-card title is now the trusted product title.
+2. The card title must match the requested GPU family before the item page is
+   opened.
+3. Detail pages may improve posted time, but they cannot replace the title.
+4. Duplicate URL tracking is reset separately for KK and KL.
+5. Every result remains grouped under the region that was actually searched.
+6. Carousell still uses sort_by=3 for recent-first results.
+
+EXPECTED
+
+Query:
+
+    /search RTX 3070 under RM1200 cheapest
+
+Facebook results must have an RTX 3070-family title on the search card.
+
+The following will not pass:
+
+- GTX 1660
+- GTX 1070
+- RTX 3060
+- RTX 3080
+- Generic title with no RTX 3070 model
+
+INSTALL
+
+1. Stop the bot:
+
+       Ctrl+C
+
+2. Extract this ZIP and replace the project files.
+
+3. Start:
+
+       py app.py
+
+4. Test:
+
+       /search RTX 3070 under RM1200 cheapest
+
+OLD WATCH DATA
+
+Old incorrect records remain in marketplace.db. For /current, remove and
+recreate the affected watch:
+
+    /remove WATCH_ID
+    /watch RTX 3070 under RM1200

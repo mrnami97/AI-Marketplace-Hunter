@@ -1,0 +1,54 @@
+AI Marketplace Hunter v0.3.3
+
+RESULT SPLIT
+
+Every /search returns separate messages:
+
+1. Up to 15 Carousell listings
+2. Up to 15 Facebook Kota Kinabalu listings
+3. Up to 15 Facebook Kuala Lumpur listings
+
+FACEBOOK IMPROVEMENTS
+
+- Opens accepted Facebook listings for extra detail extraction.
+- Uses the listing page title and text to improve the product title.
+- Tries to extract "Just listed" or listed-time text.
+- Confirms Facebook location from the detail page when possible.
+
+INSTALL
+
+1. Stop the old bot with Ctrl+C.
+
+2. Extract this ZIP into a new folder.
+
+3. Copy your existing .env into the new folder.
+
+4. Copy marketplace.db to preserve watches.
+
+5. Copy facebook-profile to preserve Facebook login.
+
+6. Add to .env:
+
+   FACEBOOK_ENABLED=true
+   FACEBOOK_HEADLESS=false
+   FACEBOOK_ENRICH_DETAILS=true
+   FACEBOOK_DETAIL_TIMEOUT_SECONDS=15
+   FACEBOOK_MAX_RESULTS_PER_LOCATION=15
+   FACEBOOK_LOCATIONS=kotakinabalu:Kota Kinabalu,kualalumpur:Kuala Lumpur
+   CAROUSELL_RESULTS_LIMIT=15
+
+7. Run:
+
+   py -m pip install -r requirements.txt
+   py app.py
+
+TEST
+
+/search RTX 3070 under RM1200 cheapest
+
+NOTES
+
+- Facebook searches are slower because the bot opens accepted listings to
+  improve title and age extraction.
+- Only one process may use facebook-profile at a time.
+- Never upload facebook-profile or .env to GitHub.

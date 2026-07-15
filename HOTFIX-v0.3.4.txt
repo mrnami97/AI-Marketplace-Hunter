@@ -1,0 +1,39 @@
+AI Marketplace Hunter v0.3.4 Strict Facebook Filter
+
+FIXES
+
+- Requires the requested GPU model in every result.
+- Searching RTX 3070 now rejects GTX 1660, RTX 3060, and other models.
+- Rejects generic ads such as:
+  "USED GPUS"
+  "GRAPHICS CARDS"
+  "READ DESCRIPTION"
+  multi-model stock advertisements.
+- Raises relevance threshold from 50/60 to 80.
+- Removes duplicate Facebook listings by:
+  source + normalized title + price + location.
+- Cleans Facebook page titles such as:
+  "(1) Marketplace - RTX 3070 ..."
+
+INSTALL
+
+Replace the files from this ZIP in your v0.3.3 project.
+
+Stop and restart:
+
+    Ctrl+C
+    py app.py
+
+Test:
+
+    /search RTX 3070 under RM1200 cheapest
+
+OLD SAVED RESULTS
+
+If /current still shows old incorrect GTX 1660 records, remove and
+recreate the watch:
+
+    /remove WATCH_ID
+    /watch RTX 3070 under RM1200
+
+The new /search results are filtered immediately.

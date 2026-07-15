@@ -1,0 +1,67 @@
+AI Marketplace Hunter v0.3.7
+Facebook Card Collection Hotfix
+
+PROBLEM FIXED
+
+Facebook showed many valid RTX 3070 listings in the browser, but the crawler
+returned only two or three.
+
+The main causes were:
+
+- the card finder required an overly specific HTML structure
+- Facebook repeats item URLs in multiple nested anchors
+- too few raw links were inspected before the result limit was reached
+- titles split across card lines were sometimes missed
+- every accepted result opened a detail page before card matching was complete
+
+CHANGES
+
+1. Uses the Facebook search card as the source of truth for title and price.
+2. Scores every visible card line and accepts only the requested GPU family.
+3. Supports titles split across multiple card lines.
+4. Scrolls up to 12 rounds and waits for three stable rounds.
+5. Reads up to 250 raw item links because Facebook duplicates anchors.
+6. Keeps separate duplicate tracking for Kota Kinabalu and Kuala Lumpur.
+7. Opens only already-matched listings to obtain posted time.
+8. Uses Facebook's default Best Match URL:
+
+   /marketplace/<location>/search?query=<query>
+
+9. Keeps up to 15 results for each Facebook location.
+10. Carousell remains unchanged and continues using sort_by=3.
+
+INSTALL
+
+1. Stop the bot:
+
+   Ctrl+C
+
+2. Extract this ZIP and replace your project files.
+
+3. Start:
+
+   py app.py
+
+4. Test:
+
+   /search RTX 3070 under RM1200 cheapest
+
+DEBUG
+
+The crawler saves:
+
+debug-output/facebook-marketplace-kotakinabalu.png
+debug-output/facebook-marketplace-kotakinabalu.html
+debug-output/facebook-marketplace-kualalumpur.png
+debug-output/facebook-marketplace-kualalumpur.html
+
+If Facebook still shows more cards than Telegram, these files can be used to
+adjust the card parser without guessing.
+
+OLD WATCH DATA
+
+Remove and recreate an affected watch if /current still contains older bad
+records:
+
+/remove WATCH_ID
+/watch RTX 3070 under RM1200

@@ -1,0 +1,45 @@
+Facebook Marketplace Phase 1
+
+FILES
+- facebook_login.py
+- facebook_test.py
+- crawler/facebook.py
+
+STEP 1 — LOGIN ONCE
+
+Stop the Telegram bot first.
+
+Run:
+
+    py facebook_login.py
+
+A Chrome window opens using the local facebook-profile folder.
+
+Log in manually to Facebook.
+Open Marketplace and confirm it works.
+Return to the terminal and press Enter.
+
+Never upload facebook-profile to GitHub.
+
+STEP 2 — TEST THE CRAWLER
+
+Run:
+
+    py facebook_test.py
+
+Expected output:
+
+    Found X Facebook Marketplace listings.
+
+The crawler saves:
+
+    debug-output/facebook-marketplace.png
+    debug-output/facebook-marketplace.html
+
+IMPORTANT
+
+- This phase does not yet connect Facebook results to Telegram.
+- It does not bypass login, CAPTCHA, rate limits, or Meta controls.
+- If Facebook asks for verification, complete it manually in the browser.
+- Stop app.py before running the login or test because the same browser profile
+  cannot be used by two processes simultaneously.

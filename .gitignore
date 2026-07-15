@@ -1,29 +1,26 @@
 # Secrets
 .env
 
-# Python virtual environment
+# Python environment
 .venv/
 __pycache__/
 *.pyc
 *.pyo
 
-# Database
+# Local databases
 marketplace.db
 *.db
 
-# Playwright browser profile
+# Browser sessions — never upload
 playwright-profile/
+facebook-profile/
 
-# Debug output
+# Debug and logs
 debug-output/
-
-# Logs
 logs/
 *.log
 
-# VS Code settings
+# VS Code and OS
 .vscode/
-
-# OS files
 .DS_Store
 Thumbs.db
