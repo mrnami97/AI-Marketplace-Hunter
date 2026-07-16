@@ -1,0 +1,41 @@
+AI Marketplace Hunter v0.4.2.7
+
+Problem:
+Gemini returns:
+400 FAILED_PRECONDITION
+User location is not supported for the API use.
+
+Meaning:
+The Gemini Developer API is rejecting the public network location used by the
+computer. Changing between Gemini free-tier model names does not remove this
+regional restriction.
+
+Hotfix behavior:
+- Detects the regional error on the first Gemini request.
+- Stops all remaining Gemini calls for the running bot session.
+- Prevents repeated identical tracebacks.
+- Uses local match and deal scores as fallback.
+- /search and /analyze still return results.
+- /aistatus shows the exact runtime reason.
+
+Install:
+1. Stop the bot with Ctrl+C.
+2. Replace:
+   ai/client.py
+   ai/analyzer.py
+   handlers.py
+   app.py
+3. Start:
+   py app.py
+4. Run:
+   /aistatus
+   /analyze RTX 3070 under RM1200
+
+Important:
+This hotfix does not bypass Google's geographic restrictions.
+
+Options for real Gemini access:
+- Run the bot from a supported network/location that complies with Google's
+  terms.
+- Use Vertex AI with a Google Cloud project and supported Vertex AI region.
+- Keep AI disabled and use the built-in local scoring.

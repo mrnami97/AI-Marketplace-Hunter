@@ -8,6 +8,9 @@ from telegram.ext import ContextTypes
 from database import (
     add_watch,
     count_seen_listings,
+    get_crawler_health,
+    get_market_prices,
+    get_market_stats,
     get_latest_watch,
     get_seen_listings,
     get_watch,
@@ -26,11 +29,16 @@ from marketplace_utils import (
     sort_scored,
 )
 from parser import parse_request
+from matching.matcher import product_key
 from watcher import check_one_watch
+from ai.analyzer import ai_analyzer
+from ai.formatter import format_ai_results
+from config import settings
+from database import count_ai_cache
 
 
 WELCOME = """
-🤖 AI Marketplace Hunter v0.3.9
+🤖 AI Marketplace Hunter v0.4.2
 
 Results are split into:
 • 15 Carousell
@@ -391,6 +399,21 @@ async def search(
                 "No matching listings found "
                 "from any source."
             )
+            return
+
+        combined=[]
+        for source_items in [grouped.carousell,grouped.facebook_kota_kinabalu,grouped.facebook_kuala_lumpur]:
+            combined.extend(score_listings(source_items,request.query))
+        combined=sort_scored(combined,"best")
+        if settings.ai_enabled and settings.ai_api_key and combined:
+            ai_status=await update.message.reply_text("🤖 Analysing the best shortlisted listings...")
+            ai_results = await ai_analyzer.analyze_top(
+                query=request.query,
+                scored_listings=combined,
+            )
+            await ai_status.delete()
+            if ai_results:
+                await update.message.reply_text(format_ai_results(request.query,ai_results),parse_mode="HTML",disable_web_page_preview=True)
 
     except Exception as error:
         print(
@@ -701,7 +724,7 @@ async def status_command(
     lines = [
         "🤖 <b>AI Marketplace Hunter</b>",
         "",
-        "Version: v0.3.9",
+        "Version: v0.4.2",
         "Status: Running ✅",
         "Results per search:",
         "• 15 Carousell",
@@ -739,3 +762,74 @@ async def status_command(
         "\n".join(lines),
         parse_mode="HTML",
     )
+
+
+async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query=" ".join(context.args).strip()
+    if not query:
+        await update.message.reply_text("Usage:\n/history RTX 3070")
+        return
+    key=product_key(query)
+    stats=get_market_stats(key)
+    rows=get_market_prices(key,200)
+    if not rows:
+        await update.message.reply_text("No history yet. Run /search first.")
+        return
+    values=sorted(float(r["price"]) for r in rows)
+    n=len(values); median=(values[n//2] if n%2 else (values[n//2-1]+values[n//2])/2)
+    await update.message.reply_text(
+        f"📈 <b>{html.escape(query)}</b>\n\nSamples: {int(stats['samples'])}\nMedian: RM{median:,.0f}\nAverage: RM{float(stats['average_price']):,.0f}\nLowest: RM{float(stats['minimum_price']):,.0f}\nHighest: RM{float(stats['maximum_price']):,.0f}",
+        parse_mode="HTML",
+    )
+
+async def health_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    rows=get_crawler_health()
+    if not rows:
+        await update.message.reply_text("No health data yet. Run /search first.")
+        return
+    lines=["🩺 <b>Crawler Health</b>",""]
+    for row in rows:
+        icon="✅" if row['status']=='healthy' else "⚠️"
+        lines += [f"<b>{icon} {html.escape(row['source'])}</b>",f"Results: {int(row['results_found'])}",f"Last update: {html.escape(row['updated_at'])}",""]
+    await update.message.reply_text("\n".join(lines),parse_mode="HTML")
+
+
+async def ai_status_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    configured=settings.ai_enabled and bool(settings.ai_api_key)
+    available=configured and ai_analyzer.runtime_available
+    await update.message.reply_text(
+        "\n".join([
+            "🤖 <b>AI Status</b>", "",
+            "Configured: "+("Yes ✅" if configured else "No"),
+            "Runtime access: "+("Available ✅" if available else "Unavailable ⚠️"),
+            "Provider: PIKKAPI Responses API",
+            f"Base URL: {html.escape(settings.ai_base_url)}",
+            f"Model: {html.escape(settings.ai_model)}",
+            f"Status: {html.escape(ai_analyzer.runtime_reason)}",
+            f"Maximum analyses/search: {settings.ai_max_listings_per_search}",
+            f"Cached analyses: {count_ai_cache()}",
+            "", "Local marketplace scoring continues if PIKKAPI is unavailable.",
+        ]), parse_mode="HTML")
+
+
+async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    raw=" ".join(context.args).strip()
+    if not raw:
+        await update.message.reply_text("Usage:\n/analyze iPhone 15 Pro under RM3000"); return
+    if not settings.ai_enabled or not settings.ai_api_key:
+        await update.message.reply_text("AI is disabled. Set AI_ENABLED=true and GEMINI_API_KEY in .env."); return
+    request=parse_request(raw); status=await update.message.reply_text("🔎 Collecting and locally shortlisting listings...")
+    grouped=await search_marketplace_groups(query=request.query,max_price=request.max_price,location=None)
+    scored=[]
+    for source_items in [grouped.carousell,grouped.facebook_kota_kinabalu,grouped.facebook_kuala_lumpur]: scored.extend(score_listings(source_items,request.query))
+    scored=sort_scored(scored,"best"); await status.edit_text("🤖 Running AI analysis...")
+    results = await ai_analyzer.analyze_top(
+        query=request.query,
+        scored_listings=scored,
+    )
+    await status.delete()
+    if not results: await update.message.reply_text("No suitable listings found."); return
+    await update.message.reply_text(format_ai_results(request.query,results),parse_mode="HTML",disable_web_page_preview=True)

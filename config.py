@@ -88,6 +88,14 @@ class Settings:
 
     carousell_results_limit: int
 
+    ai_enabled: bool
+    ai_api_key: str
+    ai_base_url: str
+    ai_model: str
+    ai_timeout_seconds: float
+    ai_max_listings_per_search: int
+    ai_concurrency: int
+
 
 settings = Settings(
     telegram_bot_token=os.getenv(
@@ -136,5 +144,33 @@ settings = Settings(
     carousell_results_limit=_env_int(
         "CAROUSELL_RESULTS_LIMIT",
         15,
+    ),
+
+    ai_enabled=_env_bool(
+        "AI_ENABLED",
+        False,
+    ),
+    ai_api_key=(
+        os.getenv("PIKKAPI_API_KEY", "").strip()
+        or os.getenv("OPENAI_API_KEY", "").strip()
+    ),
+    ai_base_url=os.getenv(
+        "PIKKAPI_BASE_URL",
+        "https://pikkapi.cooltechgp.online/v1",
+    ).strip().rstrip("/"),
+    ai_model=os.getenv(
+        "PIKKAPI_MODEL",
+        "deepseek-v4-flash",
+    ).strip(),
+    ai_timeout_seconds=float(
+        os.getenv("PIKKAPI_TIMEOUT_SECONDS", "45")
+    ),
+    ai_max_listings_per_search=_env_int(
+        "AI_MAX_LISTINGS_PER_SEARCH",
+        5,
+    ),
+    ai_concurrency=_env_int(
+        "AI_CONCURRENCY",
+        2,
     ),
 )

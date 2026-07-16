@@ -1,0 +1,18 @@
+AI Marketplace Hunter v0.4.2.3 Hotfix
+
+Fix:
+AttributeError: Settings has no attribute openai_api_key
+
+Cause:
+ai/analyzer.py still contained three OpenAI setting names after the Gemini migration.
+
+Replaced:
+- openai_api_key -> gemini_api_key
+- openai_model -> gemini_model
+- openai_timeout_seconds -> gemini_timeout_seconds
+
+Install:
+Replace ai/analyzer.py, then run:
+
+py -m pip install -r requirements.txt
+py app.py

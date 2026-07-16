@@ -73,6 +73,38 @@ def init_db() -> None:
                 "ADD COLUMN last_checked_at TEXT"
             )
 
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS market_prices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_key TEXT NOT NULL,
+                source TEXT NOT NULL,
+                location TEXT,
+                listing_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                price REAL NOT NULL,
+                captured_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(product_key, source, listing_id, price)
+            )
+        """)
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS crawler_health (
+                source TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                results_found INTEGER NOT NULL DEFAULT 0,
+                detail TEXT,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS ai_analysis_cache (
+                cache_key TEXT PRIMARY KEY, query TEXT NOT NULL, source TEXT NOT NULL,
+                listing_id TEXT NOT NULL, model TEXT NOT NULL, analysis_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         listing_columns = {
             row["name"]
             for row in con.execute(
@@ -373,3 +405,39 @@ def count_seen_listings(
         ).fetchone()
 
         return int(row["total"])
+
+
+def save_market_prices(product_key, listings):
+    with connect() as con:
+        for listing in listings:
+            if listing.price is None: continue
+            con.execute("""INSERT OR IGNORE INTO market_prices(product_key,source,location,listing_id,title,price) VALUES(?,?,?,?,?,?)""",(product_key,listing.source,listing.location,listing.listing_id,listing.title,listing.price))
+
+def get_market_prices(product_key, limit=200):
+    with connect() as con:
+        return con.execute("SELECT price FROM market_prices WHERE product_key=? ORDER BY captured_at DESC LIMIT ?",(product_key,limit)).fetchall()
+
+def get_market_stats(product_key):
+    with connect() as con:
+        return con.execute("SELECT COUNT(*) samples, MIN(price) minimum_price, MAX(price) maximum_price, AVG(price) average_price FROM market_prices WHERE product_key=?",(product_key,)).fetchone()
+
+def update_crawler_health(source,status,results_found,detail=''):
+    with connect() as con:
+        con.execute("""INSERT INTO crawler_health(source,status,results_found,detail) VALUES(?,?,?,?) ON CONFLICT(source) DO UPDATE SET status=excluded.status,results_found=excluded.results_found,detail=excluded.detail,updated_at=CURRENT_TIMESTAMP""",(source,status,results_found,detail))
+
+def get_crawler_health():
+    with connect() as con:
+        return con.execute("SELECT source,status,results_found,detail,updated_at FROM crawler_health ORDER BY source").fetchall()
+
+
+def get_ai_cache(cache_key: str):
+    with connect() as con:
+        return con.execute("SELECT * FROM ai_analysis_cache WHERE cache_key=?",(cache_key,)).fetchone()
+
+def save_ai_cache(cache_key,query,source,listing_id,model,analysis_json):
+    with connect() as con:
+        con.execute("""INSERT INTO ai_analysis_cache(cache_key,query,source,listing_id,model,analysis_json) VALUES(?,?,?,?,?,?) ON CONFLICT(cache_key) DO UPDATE SET model=excluded.model,analysis_json=excluded.analysis_json,updated_at=CURRENT_TIMESTAMP""",(cache_key,query,source,listing_id,model,analysis_json))
+
+def count_ai_cache():
+    with connect() as con:
+        return int(con.execute("SELECT COUNT(*) total FROM ai_analysis_cache").fetchone()["total"])

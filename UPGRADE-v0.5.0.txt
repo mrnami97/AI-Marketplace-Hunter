@@ -1,0 +1,21 @@
+AI Marketplace Hunter v0.5.0
+
+1. Stop with Ctrl+C.
+2. Extract into a new folder.
+3. Copy .env, marketplace.db and Facebook profile folders.
+4. Remove Gemini settings from .env.
+5. Add:
+
+AI_ENABLED=true
+PIKKAPI_API_KEY=your_token
+PIKKAPI_BASE_URL=https://pikkapi.cooltechgp.online/v1
+PIKKAPI_MODEL=deepseek-v4-flash
+PIKKAPI_TIMEOUT_SECONDS=45
+AI_MAX_LISTINGS_PER_SEARCH=5
+AI_CONCURRENCY=2
+
+6. Run:
+py -m pip install -U -r requirements.txt
+py app.py
+
+The documented API base is /v1, not /t1 or /t1/v1.

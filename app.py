@@ -6,7 +6,11 @@ from config import settings
 from database import init_db
 from handlers import (
     current_listings,
+    ai_status_command,
+    analyze_command,
     help_command,
+    health_command,
+    history_command,
     list_watches,
     manual_check,
     remove_watch,
@@ -44,6 +48,36 @@ async def post_init(application: Application) -> None:
     print("Automatic watcher scheduled every 5 minutes.")
 
 
+
+
+async def application_error_handler(
+    update,
+    context,
+) -> None:
+    logger.exception(
+        "Unhandled Telegram update error",
+        exc_info=context.error,
+    )
+
+    message = getattr(
+        update,
+        "effective_message",
+        None,
+    )
+
+    if message is not None:
+        try:
+            await message.reply_text(
+                "❌ The command failed. "
+                "Check the VS Code terminal "
+                "for the detailed error."
+            )
+        except Exception:
+            logger.exception(
+                "Could not send Telegram "
+                "error message."
+            )
+
 def main() -> None:
     if not settings.telegram_bot_token:
         raise RuntimeError(
@@ -68,8 +102,13 @@ def main() -> None:
     application.add_handler(CommandHandler("current", current_listings))
     application.add_handler(CommandHandler("check", manual_check))
     application.add_handler(CommandHandler("status", status_command))
+    application.add_handler(CommandHandler("history", history_command))
+    application.add_handler(CommandHandler("health", health_command))
+    application.add_handler(CommandHandler("aistatus", ai_status_command))
+    application.add_handler(CommandHandler("analyze", analyze_command))
+    application.add_error_handler(application_error_handler)
 
-    print("AI Marketplace Hunter v0.2.2 is running...")
+    print("AI Marketplace Hunter v0.5.0 is running...")
     application.run_polling(allowed_updates=["message"])
 
 

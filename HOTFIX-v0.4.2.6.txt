@@ -1,0 +1,51 @@
+AI Marketplace Hunter v0.4.2.6 Hotfix
+
+Problems fixed:
+
+1. Gemini error:
+   The legacy Interactions API schema is no longer supported.
+
+   ai/client.py now uses:
+   client.models.generate_content()
+
+   with:
+   response_mime_type="application/json"
+   response_schema=ListingAIAnalysis
+
+2. Formatter error:
+   TypeError: 'AIListingResult' object is not subscriptable
+
+   ai/formatter.py now supports the AIListingResult dataclass returned by
+   MarketplaceAIAnalyzer, while retaining dictionary compatibility.
+
+3. Telegram application error handling:
+   Added an application error handler so failed commands return a short
+   Telegram error instead of only printing:
+   "No error handlers are registered".
+
+Install:
+
+1. Stop the bot:
+   Ctrl+C
+
+2. Replace:
+   ai/client.py
+   ai/formatter.py
+   app.py
+   requirements.txt
+
+3. Upgrade dependency:
+   py -m pip install -U -r requirements.txt
+
+4. Confirm installed version:
+   py -m pip show google-genai
+
+5. Start:
+   py app.py
+
+6. Test:
+   /aistatus
+   /analyze RTX 3070 under RM1200
+
+If your configured model is unavailable, use:
+GEMINI_MODEL=gemini-2.5-flash-lite

@@ -1,40 +1,30 @@
-AI Marketplace Hunter v0.2.2
+# AI Marketplace Hunter v0.5.0 — PIKKAPI DeepSeek
 
-CHANGED/NEW FILES:
-- app.py
-- handlers.py
-- database.py
-- watcher.py
-- marketplace_utils.py (NEW)
-- crawler/carousell.py
-- requirements.txt
+Uses PIKKAPI's documented OpenAI-compatible Responses API.
 
-INSTALL:
-1. Stop the bot with Ctrl+C.
-2. Copy these files into the project, keeping crawler/carousell.py inside crawler.
-3. Run:
-   py -m pip install -r requirements.txt
-4. Run:
-   py app.py
+```env
+AI_ENABLED=true
+PIKKAPI_API_KEY=your_token_from_token_management
+PIKKAPI_BASE_URL=https://pikkapi.cooltechgp.online/v1
+PIKKAPI_MODEL=deepseek-v4-flash
+PIKKAPI_TIMEOUT_SECONDS=45
+AI_MAX_LISTINGS_PER_SEARCH=5
+AI_CONCURRENCY=2
+```
 
-COMMANDS:
-- /search RTX 3070 under RM1200 best
-- /search RTX 3070 under RM1200 newest
-- /search RTX 3070 under RM1200 cheapest
-- /current 2 best
-- /current 2 newest
-- /current 2 cheapest
-- /check 2
-- /status
+Install and run:
 
-FEATURES:
-- Blocks box-only, broken, repair, parts-only and similar listings.
-- Rejects weakly relevant titles.
-- Ignores listings older than 30 days.
-- Sorts by best score, newest or cheapest.
-- Local AI-style scoring: relevance + freshness + relative price.
-- Compact Telegram table.
-- Clickable "Click Here" links.
+```powershell
+py -m pip install -U -r requirements.txt
+py app.py
+```
 
-NOTE:
-This release uses local scoring and does not require an OpenAI API key.
+Telegram tests:
+
+```text
+/aistatus
+/analyze RTX 3070 under RM1200
+/search iPhone 15 Pro under RM3000 cheapest
+```
+
+The bot locally filters first, sends only the best shortlist to PIKKAPI, validates structured JSON with Pydantic, and caches unchanged results in SQLite.

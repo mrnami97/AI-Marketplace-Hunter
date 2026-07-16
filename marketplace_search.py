@@ -3,6 +3,8 @@ import logging
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from matching.matcher import product_key
+from database import save_market_prices, update_crawler_health
 
 from config import settings
 from crawler.base import Listing
@@ -247,6 +249,30 @@ async def search_marketplace_groups(
             ],
             facebook_kota_kinabalu=facebook_kk,
             facebook_kuala_lumpur=facebook_kl,
+        )
+
+        save_market_prices(
+            product_key(query),
+            result.all_listings,
+        )
+
+        update_crawler_health(
+            "Carousell",
+            "healthy" if result.carousell else "partial",
+            len(result.carousell),
+            "Recent-first search",
+        )
+        update_crawler_health(
+            "Facebook Kota Kinabalu",
+            "healthy" if result.facebook_kota_kinabalu else "partial",
+            len(result.facebook_kota_kinabalu),
+            "Virtual-scroll capture",
+        )
+        update_crawler_health(
+            "Facebook Kuala Lumpur",
+            "healthy" if result.facebook_kuala_lumpur else "partial",
+            len(result.facebook_kuala_lumpur),
+            "Virtual-scroll capture",
         )
 
         await _emit_progress(

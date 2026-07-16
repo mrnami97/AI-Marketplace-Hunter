@@ -1,0 +1,24 @@
+AI Marketplace Hunter v0.4.0
+
+UPGRADES
+- Structured GPU model matching shared by Carousell and Facebook
+- Match score separated from deal score
+- Historical market-price storage and /history command
+- /health crawler status command
+- Existing live Telegram progress display retained
+- Existing 15 Carousell + 15 Facebook KK + 15 Facebook KL split retained
+- Existing Facebook virtual-scroll capture retained
+- Existing Carousell sort_by=3 retained
+- Automated matcher tests included
+
+INSTALL
+1. Stop bot: Ctrl+C
+2. Extract ZIP into a new folder.
+3. Copy .env, marketplace.db and facebook-profile from old project.
+4. Run: py -m pip install -r requirements.txt
+5. Test: py -m unittest discover tests
+6. Start: py app.py
+
+NEW COMMANDS
+/history RTX 3070
+/health

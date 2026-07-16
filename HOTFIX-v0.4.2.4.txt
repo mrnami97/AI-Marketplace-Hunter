@@ -1,0 +1,26 @@
+AI Marketplace Hunter v0.4.2.4 Hotfix
+
+Problem:
+The following commands were imported but not registered:
+
+/aistatus
+/analyze
+/history
+/health
+
+Fix:
+Added CommandHandler registrations in app.py.
+
+Installation:
+Replace app.py in your current project,
+or use the full corrected ZIP.
+
+Restart:
+Ctrl+C
+py app.py
+
+Test:
+/aistatus
+/health
+/history RTX 3070
+/analyze RTX 3070 under RM1200

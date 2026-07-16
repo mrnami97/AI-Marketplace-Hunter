@@ -1,0 +1,27 @@
+AI Marketplace Hunter v0.4.2.2 Hotfix
+
+Fix 1:
+ImportError: cannot import name 'product_key_from_query'
+from matching.matcher
+
+The project defined product_key() but the AI/history code expected
+product_key_from_query(). A compatible function is now included.
+
+Fix 2:
+Ensure the Gemini SDK is included in requirements.txt:
+
+google-genai>=1,<2
+pydantic>=2,<3
+
+Installation:
+
+1. Replace matching/matcher.py and requirements.txt,
+   or use the full corrected ZIP.
+
+2. Install the corrected dependencies:
+
+   py -m pip install -r requirements.txt
+
+3. Start:
+
+   py app.py

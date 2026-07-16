@@ -1,5 +1,6 @@
 import math
 import re
+from matching.matcher import match_title
 from dataclasses import dataclass
 from statistics import median
 from typing import Any, Iterable
@@ -86,6 +87,8 @@ class ScoredListing:
     listing: Any
     score: int
     relevance_score: int
+    match_score: int
+    deal_score: int
     freshness_score: int
     price_score: int
     risk: str
@@ -166,45 +169,7 @@ def model_matches_query(
     title: str,
     query: str,
 ) -> bool:
-    """
-    Match only the requested GPU family.
-
-    Examples:
-    - Query RTX 3070 accepts RTX 3070 and RTX 3070 Ti.
-    - Query RTX 3070 Ti requires RTX 3070 Ti.
-    - Query GTX 1660 accepts GTX 1660 and GTX 1660 Super/Ti.
-    - RTX 3070 search does not accept GTX 1660, RTX 3060 or RTX 3080.
-
-    This is matching logic, not a global blacklist. Searching for GTX 1660
-    later will still return GTX 1660 listings normally.
-    """
-    query_tokens = extract_model_tokens(query)
-
-    if not query_tokens:
-        return True
-
-    title_tokens = extract_model_tokens(title)
-
-    if not title_tokens:
-        return False
-
-    for wanted in query_tokens:
-        for found in title_tokens:
-            if wanted.number != found.number:
-                continue
-
-            if wanted.brand and found.brand and wanted.brand != found.brand:
-                continue
-
-            # A query with a specific suffix requires that exact suffix.
-            if wanted.suffix:
-                if wanted.suffix != found.suffix:
-                    continue
-
-            # A query without a suffix accepts the base family and variants.
-            return True
-
-    return False
+    return match_title(title, query).matched
 
 
 def is_blocked_listing(
@@ -272,81 +237,7 @@ def relevance_score(
     title: str,
     query: str,
 ) -> int:
-    if not model_matches_query(
-        title,
-        query,
-    ):
-        return 0
-
-    query_tokens = extract_model_tokens(query)
-    title_tokens = extract_model_tokens(title)
-
-    score = 70
-
-    if query_tokens:
-        wanted = query_tokens[0]
-
-        exact_suffix_match = any(
-            token.number == wanted.number
-            and (
-                not wanted.brand
-                or not token.brand
-                or token.brand == wanted.brand
-            )
-            and token.suffix == wanted.suffix
-            for token in title_tokens
-        )
-
-        same_family_variant = any(
-            token.number == wanted.number
-            and (
-                not wanted.brand
-                or not token.brand
-                or token.brand == wanted.brand
-            )
-            for token in title_tokens
-        )
-
-        if exact_suffix_match:
-            score = 100
-        elif same_family_variant:
-            score = 90
-
-    terms = query_terms(query)
-    normalized_title = normalize_text(title)
-    compact_title = compact_model_text(title)
-
-    non_model_terms = [
-        term
-        for term in terms
-        if not any(
-            term in {
-                token.brand,
-                token.number,
-                token.suffix,
-            }
-            for token in query_tokens
-        )
-    ]
-
-    if non_model_terms:
-        matched = sum(
-            1
-            for term in non_model_terms
-            if term in normalized_title
-            or compact_model_text(term)
-            in compact_title
-        )
-
-        score += round(
-            10 * matched
-            / len(non_model_terms)
-        )
-
-    return max(
-        0,
-        min(score, 100),
-    )
+    return match_title(title, query).confidence
 
 
 def posted_age_minutes(
@@ -629,6 +520,8 @@ def score_listings(
                 listing=listing,
                 score=final_score,
                 relevance_score=relevance,
+                match_score=relevance,
+                deal_score=round(freshness * 0.35 + price * 0.65),
                 freshness_score=freshness,
                 price_score=price,
                 risk=risk,

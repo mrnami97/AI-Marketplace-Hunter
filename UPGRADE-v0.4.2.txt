@@ -1,0 +1,42 @@
+AI Marketplace Hunter v0.4.2 — Gemini Upgrade
+
+1. Stop the current bot:
+
+   Ctrl+C
+
+2. Extract this ZIP into a new folder.
+
+3. Copy your private local files:
+
+   .env
+   marketplace.db
+   facebook-profile/
+   facebook-profile-kk/
+   facebook-profile-kl/
+
+4. Install:
+
+   py -m pip install -r requirements.txt
+   py -m playwright install chromium
+
+5. Remove old OpenAI settings from .env and add:
+
+   AI_ENABLED=true
+   GEMINI_API_KEY=your_gemini_api_key_here
+   GEMINI_MODEL=gemini-3.5-flash
+   GEMINI_TIMEOUT_SECONDS=30
+   AI_MAX_LISTINGS_PER_SEARCH=5
+   AI_CONCURRENCY=2
+
+6. Start:
+
+   py app.py
+
+7. Test in Telegram:
+
+   /aistatus
+   /search iPhone 15 Pro under RM3000 cheapest
+   /analyze RTX 3070 under RM1200
+
+The normal marketplace crawler works even when Gemini is disabled or
+temporarily unavailable.

@@ -1,0 +1,31 @@
+AI Marketplace Hunter v0.4.2.5 Hotfix
+
+Problem:
+TypeError: MarketplaceAIAnalyzer.analyze_top()
+takes 1 positional argument but 3 were given
+
+Cause:
+analyze_top() declares query and scored_listings as
+keyword-only arguments, but handlers.py passed them
+positionally.
+
+Fixed calls:
+
+await ai_analyzer.analyze_top(
+    query=request.query,
+    scored_listings=scored,
+)
+
+The automatic AI analysis after /search was fixed too.
+
+Installation:
+Replace handlers.py in your project,
+or use the full corrected ZIP.
+
+Restart:
+Ctrl+C
+py app.py
+
+Test:
+/aistatus
+/analyze RTX 3070 under RM1200
